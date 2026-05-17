@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --pixel: 'Press Start 2P', 'DotGothic16', monospace;
+  --pixel-jp: 'DotGothic16', 'Press Start 2P', monospace;
+  --bg:     #0d0d1a;
+  --panel:  #1a1a2e;
+  --border: #4444aa;
+  --hp:     #cc2200;
+  --mp:     #0055cc;
+  --gold:   #ffcc00;
+  --food:   #ff9900;
+  --text:   #eaeaea;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  overflow: hidden;
+  background: var(--bg);
+  font-family: var(--pixel);
+  color: var(--text);
+  /* ダブルタップズームを無効化 */
+  touch-action: manipulation;
+}
+
+/* キャンバスをピクセルパーフェクトに */
+canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+}
+
+/* ─── レトロパネル ─────────────────── */
+.retro-panel {
+  background: var(--panel);
+  border: 3px solid var(--border);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+}
+
+/* ─── レトロボタン ─────────────────── */
+.retro-btn {
+  background: #0a0a1a;
+  border: 3px solid var(--border);
+  box-shadow: 3px 3px 0 var(--border);
+  color: var(--text);
+  font-family: var(--pixel);
+  font-size: 10px;
+  line-height: 1.4;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: none;
+}
+.retro-btn:active:not(:disabled) {
+  box-shadow: none;
+  transform: translate(3px, 3px);
+}
+.retro-btn:disabled {
+  border-color: #333366;
+  box-shadow: 3px 3px 0 #333366;
+  color: #333366;
+  cursor: not-allowed;
+}
+
+/* ─── ゲージ ───────────────────────── */
+.retro-gauge {
+  border: 2px solid var(--border);
+  background: #000018;
+  position: relative;
+  overflow: hidden;
+}
+.retro-gauge-fill {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  transition: width 120ms steps(20, end);
+}
+
+/* ─── スキャンライン (CRT風) ────────── */
+.scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.18) 0px,
+    rgba(0, 0, 0, 0.18) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ─── 点滅アニメ ────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.blink { animation: blink 0.8s step-end infinite; }

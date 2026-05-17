@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(npx tsc *)",
+      "Bash(kill %1)",
+      "mcp__Claude_Preview__preview_start"
+    ]
+  }
+}
