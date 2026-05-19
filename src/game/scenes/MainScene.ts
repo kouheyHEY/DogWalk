@@ -87,9 +87,8 @@ export class MainScene extends Phaser.Scene {
     // 最下点は常に cy に固定
     this.creature.setPosition(cx + offsetX, cy).setScale(scale);
 
-    // セリフは生物の上端の少し上に追従（揺れ・拡縮の影響なし）
-    const creatureTopY = cy - CREATURE_BASE_PX * baseScale;
-    this.speechText.setPosition(cx, creatureTopY - SPEECH_GAP_PX);
+    // セリフは画面中央からの固定オフセット（キャラのサイズ変化の影響を受けない）
+    this.speechText.setPosition(cx, cy - CREATURE_BASE_PX - SPEECH_GAP_PX);
 
     this.dotTimer += delta;
     if (this.dotTimer >= DOT_INTERVAL_MS) {
