@@ -1,21 +1,50 @@
+import { useEffect } from 'react';
 import { GameCanvas } from './components/GameCanvas';
-import { useGameStore } from './store/gameStore';
+import { NameInputModal } from './components/NameInputModal';
+import { useGameStore, SLEEP_COOLDOWN_MIN } from './store/gameStore';
+
+function formatClock(gameMinutes: number): string {
+  const m = ((gameMinutes % 1440) + 1440) % 1440;
+  const hh = Math.floor(m / 60).toString().padStart(2, '0');
+  const mm = (m % 60).toString().padStart(2, '0');
+  return `${hh}:${mm}`;
+}
 
 export default function App() {
-  const { food, days, weight } = useGameStore();
+  const {
+    name, food, days, weight, isSleeping, gameMinutes, lastWokeAt, feed, sleep, tick,
+  } = useGameStore();
+
+  useEffect(() => {
+    if (!name) return;
+    const id = setInterval(() => tick(), 1000);
+    return () => clearInterval(id);
+  }, [name, tick]);
+
+  const cooldownRemain =
+    lastWokeAt === null
+      ? 0
+      : Math.max(0, SLEEP_COOLDOWN_MIN - (gameMinutes - lastWokeAt));
+  const canSleep = !isSleeping && cooldownRemain === 0;
+  const sleepStatusLabel = isSleeping
+    ? '睡眠中...'
+    : canSleep
+      ? '睡眠可能'
+      : `あと${cooldownRemain}分で睡眠可能`;
 
   return (
     <div
-      className="flex flex-col w-screen h-screen overflow-hidden bg-black text-white"
+      className="relative flex flex-col w-screen h-screen overflow-hidden bg-black text-white"
       style={{ fontFamily: 'var(--pixel-jp)' }}
     >
-      {/* 上部: 右上にステータスを集約（ラベル＝値） */}
-      <div className="flex justify-end px-4 pt-16 pb-2 shrink-0">
+      {/* 上部: 左に時計、右にステータス */}
+      <div className="flex justify-between items-start px-4 pt-16 pb-2 shrink-0">
+        <div className="text-2xl tabular-nums">
+          {formatClock(gameMinutes)} <span>{days}日目</span>
+        </div>
         <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-2 text-xl tabular-nums">
-          <span className="text-right">ごはん</span>
-          <span className="text-right">{food}</span>
-          <span className="text-right">経過日数</span>
-          <span className="text-right">{days}</span>
+          <span className="text-right">名前</span>
+          <span className="text-right">{name}</span>
           <span className="text-right">体重</span>
           <span className="text-right">{weight.toFixed(1)}kg</span>
         </div>
@@ -26,19 +55,33 @@ export default function App() {
         <GameCanvas />
       </div>
 
+      {/* 名前入力モーダル（未入力時のみ） */}
+      {!name && <NameInputModal />}
+
+      {/* 睡眠フェードオーバーレイ（画面全体） */}
+      <div
+        data-testid="sleep-fade"
+        aria-hidden
+        className={`pointer-events-none absolute inset-0 bg-black transition-opacity duration-1000 ${isSleeping ? 'opacity-100' : 'opacity-0'}`}
+      />
+
       {/* 下部: 操作ボタン */}
       <div className="flex gap-3 px-4 pt-2 pb-16 shrink-0">
         <button
-          onClick={() => { /* TODO: ごはんを与える */ }}
-          className="flex-1 py-4 text-white text-lg border-2 border-white bg-black active:bg-white active:text-black"
+          onClick={feed}
+          disabled={food <= 0 || isSleeping}
+          className="flex-1 py-4 text-white border-2 border-white bg-black active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
         >
-          ごはん
+          <span className="text-lg">ごはん</span>
+          <span className="text-sm tabular-nums">残数：{food}</span>
         </button>
         <button
-          onClick={() => { /* TODO: ねかせる */ }}
-          className="flex-1 py-4 text-white text-lg border-2 border-white bg-black active:bg-white active:text-black"
+          onClick={sleep}
+          disabled={!canSleep}
+          className="flex-1 py-4 text-white border-2 border-white bg-black active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
         >
-          ねる
+          <span className="text-lg">ねる</span>
+          <span className="text-sm tabular-nums">{sleepStatusLabel}</span>
         </button>
       </div>
     </div>
