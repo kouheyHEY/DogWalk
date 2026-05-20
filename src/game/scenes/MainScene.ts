@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
-import { useGameStore } from '../../store/gameStore';
+import { stageOf, stageNoOf, useGameStore, type Stage } from '../../store/gameStore';
+
+// 生物スプライトのキー命名規則: creature_<stageNo>_<form>_<motion>
+// 現状は baby のみ素材あり。child/adult の素材が追加されたら preload に追記し、
+// update() の setTexture が自動で切替えるようになる。
+const creatureKey = (stageNo: number, form: Stage, motion: string) =>
+  `creature_${stageNo}_${form}_${motion}`;
 
 const SCALE_PER_KG      = 0.1;            // 体重 1kg = スケール 0.1（初期 5kg → 0.5倍）
 const CREATURE_BASE_PX  = 128;            // 元画像の高さ
@@ -38,7 +44,10 @@ export class MainScene extends Phaser.Scene {
   constructor() { super({ key: 'MainScene' }); }
 
   preload() {
-    this.load.image('creature', 'assets/creature_1_baby_stop.png');
+    this.load.image(creatureKey(1, 'baby', 'stop'), 'assets/creature_1_baby_stop.png');
+    // TODO: 素材追加時にロード行を増やす
+    // this.load.image(creatureKey(2, 'child', 'stop'), 'assets/creature_2_child_stop.png');
+    // this.load.image(creatureKey(3, 'adult', 'stop'), 'assets/creature_3_adult_stop.png');
   }
 
   create() {
@@ -49,7 +58,7 @@ export class MainScene extends Phaser.Scene {
 
     // 原点を最下中央に。scale を変えても最下点は動かない
     this.creature = this.add
-      .image(cx, cy, 'creature')
+      .image(cx, cy, creatureKey(1, 'baby', 'stop'))
       .setOrigin(0.5, 1.0);
 
     this.speechText = this.add
@@ -66,6 +75,12 @@ export class MainScene extends Phaser.Scene {
     const cy = this.scale.height / 2;
     const { weight } = useGameStore.getState();
     const baseScale = weight * SCALE_PER_KG;
+
+    // ステージ対応スプライトが存在すれば切替（無ければ現テクスチャ維持）
+    const desiredKey = creatureKey(stageNoOf(weight), stageOf(weight), 'stop');
+    if (this.textures.exists(desiredKey) && this.creature.texture.key !== desiredKey) {
+      this.creature.setTexture(desiredKey);
+    }
 
     // ── 各モーションは独立した乱数スケジュールで発生 ──
     this.tickMotion(this.breath, delta, ANIM_BREATH_MS, BREATH_MIN_MS, BREATH_MAX_MS);

@@ -6,7 +6,9 @@
       "Bash(npx tsc *)",
       "Bash(kill %1)",
       "mcp__Claude_Preview__preview_start",
-      "Bash(gh issue *)"
+      "Bash(gh issue *)",
+      "Bash(git fetch *)",
+      "Bash(git add *)"
     ]
   }
 }
