@@ -1,18 +1,36 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+
+export type Screen = 'title' | 'game';
 
 interface GameStore {
+  screen: Screen;              // 現在表示中の画面
   name: string;                // プレイヤーが付けた生物の名前（カタカナ4文字）。空ならゲーム未開始。
   food: number;                // ごはんの回数（残数）
   days: number;                // 経過日数
   weight: number;              // 体重 (kg)
   isSleeping: boolean;         // 睡眠中フラグ
+  isPaused: boolean;           // モーダル/メニュー表示中などの一時停止フラグ
   gameMinutes: number;         // ゲーム内経過分（1日 = 1440 で巻き戻る前提の通算分）
   lastWokeAt: number | null;   // 最後に起きた時刻（gameMinutes基準）。null なら未睡眠。
+  startGame: () => void;
+  resetGame: () => void;
+  goToTitle: () => void;
+  setPaused: (paused: boolean) => void;
   setName: (name: string) => void;
   tick: () => void;
   feed: () => void;
   sleep: () => void;
 }
+
+const INITIAL_STATE = {
+  name: '',
+  food: 8,
+  days: 1,
+  weight: 5.0,
+  isSleeping: false,
+  lastWokeAt: null as number | null,
+};
 
 export const NAME_PATTERN = /^[ぁ-ゖァ-ヶー]{1,4}$/; // ひらがな/カタカナ 1〜4文字（長音符含む）
 
@@ -44,14 +62,23 @@ function dayIndex(min: number): number {
   return Math.floor(min / MINUTES_PER_DAY);
 }
 
-export const useGameStore = create<GameStore>((set, get) => ({
-  name: '',
-  food: 8,
-  days: 1,
-  weight: 5.0,
-  isSleeping: false,
+export const useGameStore = create<GameStore>()(
+  persist(
+    (set, get) => ({
+  screen: 'title',
+  ...INITIAL_STATE,
+  isPaused: false,
   gameMinutes: INITIAL_GAME_MINUTES,
-  lastWokeAt: null,
+  startGame: () => set({ screen: 'game' }),
+  goToTitle: () => set({ screen: 'title', isPaused: false }),
+  setPaused: (paused) => set({ isPaused: paused }),
+  resetGame: () =>
+    set({
+      ...INITIAL_STATE,
+      gameMinutes: INITIAL_GAME_MINUTES,
+      isPaused: false,
+      screen: 'game',
+    }),
   setName: (name) => {
     if (!NAME_PATTERN.test(name)) return;
     set({ name });
@@ -92,6 +119,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
       });
     }, SLEEP_FADE_MS);
   },
-}));
+    }),
+    {
+      name: 'dogwalk-save',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (s) => ({
+        name: s.name,
+        food: s.food,
+        days: s.days,
+        weight: s.weight,
+        gameMinutes: s.gameMinutes,
+        lastWokeAt: s.lastWokeAt,
+      }),
+    },
+  ),
+);
 
 export { SLEEP_COOLDOWN_MIN };
