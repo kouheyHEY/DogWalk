@@ -73,7 +73,8 @@ export class MainScene extends Phaser.Scene {
   update(_time: number, delta: number) {
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
-    const { weight } = useGameStore.getState();
+    const { weight, isPaused } = useGameStore.getState();
+    if (isPaused) return; // 一時停止中はアニメも進めない
     const baseScale = weight * SCALE_PER_KG;
 
     // ステージ対応スプライトが存在すれば切替（無ければ現テクスチャ維持）

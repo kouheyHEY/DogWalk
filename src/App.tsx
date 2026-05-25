@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { GameCanvas } from './components/GameCanvas';
+import { HamburgerMenu } from './components/HamburgerMenu';
 import { NameInputModal } from './components/NameInputModal';
+import { TitleScreen } from './components/TitleScreen';
 import { useGameStore, SLEEP_COOLDOWN_MIN } from './store/gameStore';
 
 function formatClock(gameMinutes: number): string {
@@ -12,14 +14,14 @@ function formatClock(gameMinutes: number): string {
 
 export default function App() {
   const {
-    name, food, days, weight, isSleeping, gameMinutes, lastWokeAt, feed, sleep, tick,
+    screen, name, food, days, weight, isSleeping, isPaused, gameMinutes, lastWokeAt, feed, sleep, tick,
   } = useGameStore();
 
   useEffect(() => {
-    if (!name) return;
+    if (screen !== 'game' || !name || isPaused) return;
     const id = setInterval(() => tick(), 1000);
     return () => clearInterval(id);
-  }, [name, tick]);
+  }, [screen, name, isPaused, tick]);
 
   const cooldownRemain =
     lastWokeAt === null
@@ -42,11 +44,14 @@ export default function App() {
         <div className="text-2xl tabular-nums">
           {formatClock(gameMinutes)} <span>{days}日目</span>
         </div>
-        <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-2 text-xl tabular-nums">
-          <span className="text-right">名前</span>
-          <span className="text-right">{name}</span>
-          <span className="text-right">体重</span>
-          <span className="text-right">{weight.toFixed(1)}kg</span>
+        <div className="flex items-start gap-4">
+          <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-2 text-xl tabular-nums">
+            <span className="text-right">名前</span>
+            <span className="text-right">{name}</span>
+            <span className="text-right">体重</span>
+            <span className="text-right">{weight.toFixed(1)}kg</span>
+          </div>
+          <HamburgerMenu />
         </div>
       </div>
 
@@ -55,8 +60,11 @@ export default function App() {
         <GameCanvas />
       </div>
 
-      {/* 名前入力モーダル（未入力時のみ） */}
-      {!name && <NameInputModal />}
+      {/* 名前入力モーダル（ゲーム画面で名前未入力のみ） */}
+      {screen === 'game' && !name && <NameInputModal />}
+
+      {/* タイトル画面 */}
+      {screen === 'title' && <TitleScreen />}
 
       {/* 睡眠フェードオーバーレイ（画面全体） */}
       <div
