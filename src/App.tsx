@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { GameCanvas } from './components/GameCanvas';
+import { AchievementToast } from './components/AchievementToast';
 import { HamburgerMenu } from './components/HamburgerMenu';
 import { NameInputModal } from './components/NameInputModal';
 import { TitleScreen } from './components/TitleScreen';
@@ -62,6 +63,9 @@ export default function App() {
 
       {/* 名前入力モーダル（ゲーム画面で名前未入力のみ） */}
       {screen === 'game' && !name && <NameInputModal />}
+
+      {/* 実績解除トースト（ゲーム画面のみ） */}
+      {screen === 'game' && <AchievementToast />}
 
       {/* タイトル画面 */}
       {screen === 'title' && <TitleScreen />}
