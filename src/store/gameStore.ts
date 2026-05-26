@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { findNewlyUnlocked } from '../achievements';
 
 export type Screen = 'title' | 'game';
 
@@ -13,6 +14,10 @@ interface GameStore {
   isPaused: boolean;           // モーダル/メニュー表示中などの一時停止フラグ
   gameMinutes: number;         // ゲーム内経過分（1日 = 1440 で巻き戻る前提の通算分）
   lastWokeAt: number | null;   // 最後に起きた時刻（gameMinutes基準）。null なら未睡眠。
+  totalFeedCount: number;      // ごはんを与えた累計回数
+  totalSleepCount: number;     // 睡眠を取った累計回数
+  achievements: Record<string, boolean>; // 実績id → 解除済みフラグ
+  recentUnlocks: string[];     // 直近で解除された実績id（トースト通知などのキュー）
   startGame: () => void;
   resetGame: () => void;
   goToTitle: () => void;
@@ -21,6 +26,7 @@ interface GameStore {
   tick: () => void;
   feed: () => void;
   sleep: () => void;
+  consumeUnlock: () => string | null; // recentUnlocks の先頭を取り出して返す（UI用）
 }
 
 const INITIAL_STATE = {
@@ -30,6 +36,10 @@ const INITIAL_STATE = {
   weight: 5.0,
   isSleeping: false,
   lastWokeAt: null as number | null,
+  totalFeedCount: 0,
+  totalSleepCount: 0,
+  achievements: {} as Record<string, boolean>,
+  recentUnlocks: [] as string[],
 };
 
 export const NAME_PATTERN = /^[ぁ-ゖァ-ヶー]{1,4}$/; // ひらがな/カタカナ 1〜4文字（長音符含む）
@@ -86,38 +96,78 @@ export const useGameStore = create<GameStore>()(
   tick: () => set((s) => {
     const next = s.gameMinutes + 1;
     const dayDiff = dayIndex(next) - dayIndex(s.gameMinutes);
-    return dayDiff > 0
-      ? {
-          gameMinutes: next,
-          days: s.days + dayDiff,
-          weight: s.weight + DAILY_WEIGHT_GAIN * dayDiff,
-        }
-      : { gameMinutes: next };
+    if (dayDiff === 0) return { gameMinutes: next };
+    const nextDays = s.days + dayDiff;
+    const nextWeight = s.weight + DAILY_WEIGHT_GAIN * dayDiff;
+    const newlyUnlocked = findNewlyUnlocked(
+      { totalFeedCount: s.totalFeedCount, totalSleepCount: s.totalSleepCount, days: nextDays, weight: nextWeight },
+      s.achievements,
+    );
+    return {
+      gameMinutes: next,
+      days: nextDays,
+      weight: nextWeight,
+      ...(newlyUnlocked.length > 0 && {
+        achievements: { ...s.achievements, ...Object.fromEntries(newlyUnlocked.map((id) => [id, true])) },
+        recentUnlocks: [...s.recentUnlocks, ...newlyUnlocked],
+      }),
+    };
   }),
   feed: () =>
-    set((s) =>
-      s.isSleeping || s.food <= 0
-        ? s
-        : { food: s.food - 1, weight: s.weight + 0.5 }
-    ),
+    set((s) => {
+      if (s.isSleeping || s.food <= 0) return s;
+      const next = {
+        food: s.food - 1,
+        weight: s.weight + 0.5,
+        totalFeedCount: s.totalFeedCount + 1,
+      };
+      const newlyUnlocked = findNewlyUnlocked(
+        { totalFeedCount: next.totalFeedCount, totalSleepCount: s.totalSleepCount, days: s.days, weight: next.weight },
+        s.achievements,
+      );
+      return newlyUnlocked.length === 0
+        ? next
+        : {
+            ...next,
+            achievements: { ...s.achievements, ...Object.fromEntries(newlyUnlocked.map((id) => [id, true])) },
+            recentUnlocks: [...s.recentUnlocks, ...newlyUnlocked],
+          };
+    }),
   sleep: () => {
     const s = get();
     if (s.isSleeping) return;
     if (s.lastWokeAt !== null && s.gameMinutes - s.lastWokeAt < SLEEP_COOLDOWN_MIN) return;
-    set({ isSleeping: true });
+    set({ isSleeping: true, totalSleepCount: s.totalSleepCount + 1 });
     // フェードアウト完了タイミングで時間ジャンプ＆起床（その後フェードインへ）
     setTimeout(() => {
       const cur = get();
       const advanced = cur.gameMinutes + SLEEP_ELAPSED_MIN;
       const dayDiff = dayIndex(advanced) - dayIndex(cur.gameMinutes);
+      const nextDays = cur.days + dayDiff;
+      const nextWeight = cur.weight + DAILY_WEIGHT_GAIN * dayDiff;
+      const newlyUnlocked = findNewlyUnlocked(
+        { totalFeedCount: cur.totalFeedCount, totalSleepCount: cur.totalSleepCount, days: nextDays, weight: nextWeight },
+        cur.achievements,
+      );
       set({
         isSleeping: false,
         gameMinutes: advanced,
         lastWokeAt: advanced,
-        days: cur.days + dayDiff,
-        weight: cur.weight + DAILY_WEIGHT_GAIN * dayDiff,
+        days: nextDays,
+        weight: nextWeight,
+        ...(newlyUnlocked.length > 0 && {
+          achievements: { ...cur.achievements, ...Object.fromEntries(newlyUnlocked.map((id) => [id, true])) },
+          recentUnlocks: [...cur.recentUnlocks, ...newlyUnlocked],
+        }),
       });
     }, SLEEP_FADE_MS);
+  },
+  consumeUnlock: () => {
+    const s = get();
+    if (s.recentUnlocks.length === 0) return null;
+    const [head, ...rest] = s.recentUnlocks;
+    set({ recentUnlocks: rest });
+    return head;
   },
     }),
     {
@@ -130,6 +180,9 @@ export const useGameStore = create<GameStore>()(
         weight: s.weight,
         gameMinutes: s.gameMinutes,
         lastWokeAt: s.lastWokeAt,
+        totalFeedCount: s.totalFeedCount,
+        totalSleepCount: s.totalSleepCount,
+        achievements: s.achievements,
       }),
     },
   ),

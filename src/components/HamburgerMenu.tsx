@@ -1,17 +1,28 @@
 import { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
+import { AchievementsDialog } from './AchievementsDialog';
 
 export function HamburgerMenu() {
   const goToTitle = useGameStore((s) => s.goToTitle);
   const setPaused = useGameStore((s) => s.setPaused);
-  const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [achievementsOpen, setAchievementsOpen] = useState(false);
 
   const openMenu = () => {
-    setOpen(true);
+    setMenuOpen(true);
     setPaused(true);
   };
   const closeMenu = () => {
-    setOpen(false);
+    setMenuOpen(false);
+    setPaused(false);
+  };
+  const openAchievements = () => {
+    // メニューだけ閉じて、ポーズはダイアログ側で継続
+    setMenuOpen(false);
+    setAchievementsOpen(true);
+  };
+  const closeAchievements = () => {
+    setAchievementsOpen(false);
     setPaused(false);
   };
 
@@ -26,7 +37,7 @@ export function HamburgerMenu() {
         ≡
       </button>
 
-      {open && (
+      {menuOpen && (
         <div
           data-testid="menu-dialog"
           className="absolute inset-0 z-30 flex items-center justify-center bg-black/80"
@@ -37,6 +48,13 @@ export function HamburgerMenu() {
             className="bg-black border-2 border-white p-6 flex flex-col gap-3 w-64"
           >
             <div className="text-lg text-center mb-2">メニュー（一時停止中）</div>
+            <button
+              data-testid="menu-achievements"
+              onClick={openAchievements}
+              className="py-3 text-lg border-2 border-white bg-black text-white active:bg-white active:text-black"
+            >
+              実績
+            </button>
             <button
               data-testid="menu-to-title"
               onClick={() => {
@@ -57,6 +75,8 @@ export function HamburgerMenu() {
           </div>
         </div>
       )}
+
+      {achievementsOpen && <AchievementsDialog onClose={closeAchievements} />}
     </>
   );
 }
