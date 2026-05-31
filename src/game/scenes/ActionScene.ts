@@ -5,9 +5,15 @@ const SCALE_PER_KG = 0.1; // MainScene と同じ基準
 
 const GRAVITY = 0.004; // 重力加速度 (px / ms^2)
 const SCROLL_SPEED = 0.25; // 前進スクロール速度 (px / ms = 250px/s)
-const DASH_SPACING = 64; // 地面破線の間隔
-const DASH_WIDTH = 28; // 地面破線の長さ
 const GROUND_RATIO = 0.8; // 地面の高さ（画面高に対する割合）
+
+// 地面セグメントとギャップの幅レンジ
+const SEG_MIN_WIDTH = 200;
+const SEG_MAX_WIDTH = 380;
+const GAP_MIN_WIDTH = 90;
+const GAP_MAX_WIDTH = 170;
+
+const FALL_EXIT_MARGIN = 80; // 画面下からこの距離より下に落ちたら育成画面へ戻る
 
 const TAP_THRESHOLD_MS = 180; // これ未満の押下は突進、以上はジャンプ
 const MAX_CHARGE_MS = 800; // フルチャージまでの押下時間
@@ -27,16 +33,24 @@ const JUMP_FACTOR_MIN = 0.6;
 const DASH_PER_KG = 0.02; // 突進の 1kg あたり鈍化（所要時間が伸びる）
 const DASH_FACTOR_MIN = 0.5;
 
+interface GroundSegment {
+    rect: Phaser.GameObjects.Rectangle;
+    width: number;
+}
+
+function rand(min: number, max: number) {
+    return min + Math.random() * (max - min);
+}
+
 // 横スクロールアクション用シーン。
-// Step 3: 短押し突進 / 長押しチャージ→ジャンプ（チャージ量でジャンプ力可変）。
+// Step 1: 連続地面を「セグメント＋ギャップ」に置き換え（視覚のみ／落下判定はまだ無し）。
 export class ActionScene extends Phaser.Scene {
     private creature!: Phaser.GameObjects.Image;
-    private groundLine!: Phaser.GameObjects.Graphics;
     private label!: Phaser.GameObjects.Text;
     private groundY = 0;
     private creatureVY = 0; // 垂直速度 (px / ms)
     private baseScale = 0.5;
-    private dashes: Phaser.GameObjects.Rectangle[] = [];
+    private segments: GroundSegment[] = [];
     private pointerDownAt: number | null = null;
     private dashing = false;
 
@@ -53,21 +67,7 @@ export class ActionScene extends Phaser.Scene {
         this.creatureVY = 0;
         this.pointerDownAt = null;
         this.dashing = false;
-
-        const w = this.scale.width;
-
-        // 地面ライン（位置は layout() で確定）
-        this.groundLine = this.add.graphics();
-
-        // 前進を表す地面の破線（左へスクロール）
-        this.dashes = [];
-        const count = Math.ceil(w / DASH_SPACING) + 1;
-        for (let i = 0; i < count; i++) {
-            const d = this.add
-                .rectangle(i * DASH_SPACING, 0, DASH_WIDTH, 3, 0xffffff, 0.4)
-                .setOrigin(0, 0.5);
-            this.dashes.push(d);
-        }
+        this.segments = [];
 
         // キャラ（地面に立つ。原点は最下中央）
         const { weight } = useGameStore.getState();
@@ -116,8 +116,21 @@ export class ActionScene extends Phaser.Scene {
         }
     }
 
+    // キャラの真下に地面セグメントが存在するか。
+    private hasGroundBelow(): boolean {
+        const cx = this.creature.x;
+        for (const s of this.segments) {
+            if (cx >= s.rect.x && cx <= s.rect.x + s.width) return true;
+        }
+        return false;
+    }
+
     private isOnGround() {
-        return this.creature.y >= this.groundY - 0.5;
+        return (
+            this.creature.y >= this.groundY - 0.5 &&
+            this.creature.y <= this.groundY + 0.5 &&
+            this.hasGroundBelow()
+        );
     }
 
     // 体重に応じた鈍化係数（基準=1.0、重いほど小さく、下限でクランプ）。
@@ -167,22 +180,59 @@ export class ActionScene extends Phaser.Scene {
         });
     }
 
+    // 初期セグメントを画面右端まで埋める。
+    private fillSegmentsRight() {
+        const w = this.scale.width;
+        let nextX = 0;
+        if (this.segments.length > 0) {
+            const last = this.segments[this.segments.length - 1];
+            nextX = last.rect.x + last.width + rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
+        }
+        while (nextX < w + SEG_MAX_WIDTH) {
+            const width = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
+            const rect = this.add
+                .rectangle(nextX, this.groundY, width, 2, 0xffffff, 0.6)
+                .setOrigin(0, 0.5);
+            this.segments.push({ rect, width });
+            nextX += width + rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
+        }
+    }
+
+    // 左へスクロールし、画面外に出たセグメントは右に再配置する。
+    private scrollSegments(dx: number) {
+        for (const s of this.segments) {
+            s.rect.x -= dx;
+        }
+        while (
+            this.segments.length > 0 &&
+            this.segments[0].rect.x + this.segments[0].width < 0
+        ) {
+            const s = this.segments.shift()!;
+            const last = this.segments[this.segments.length - 1];
+            const newX =
+                (last ? last.rect.x + last.width : 0) +
+                rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
+            const newWidth = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
+            s.rect.x = newX;
+            s.rect.setSize(newWidth, 2);
+            s.width = newWidth;
+            this.segments.push(s);
+        }
+    }
+
     // 現在のキャンバスサイズに合わせて各要素を再配置する。
     private layout() {
         const w = this.scale.width;
         const h = this.scale.height;
         this.groundY = h * GROUND_RATIO;
 
-        this.groundLine.clear();
-        this.groundLine.lineStyle(2, 0xffffff, 0.6);
-        this.groundLine.beginPath();
-        this.groundLine.moveTo(0, this.groundY);
-        this.groundLine.lineTo(w, this.groundY);
-        this.groundLine.strokePath();
-
-        for (const d of this.dashes) {
-            d.y = this.groundY + 8;
+        // 全セグメントの y を地面に合わせる
+        for (const s of this.segments) {
+            s.rect.y = this.groundY;
         }
+
+        // 右側のカバレッジを確保（初期化 or 画面が広がった場合）
+        this.fillSegmentsRight();
 
         // 突進中は x をツイードに任せる
         if (!this.dashing) {
@@ -199,22 +249,27 @@ export class ActionScene extends Phaser.Scene {
     update(_time: number, delta: number) {
         if (useGameStore.getState().isPaused) return;
 
-        // 破線を左へスクロールして前進を表現（体重で速度が鈍化）
-        const dx = SCROLL_SPEED * this.weightFactor(SPEED_PER_KG, SPEED_FACTOR_MIN) * delta;
-        const total = this.dashes.length * DASH_SPACING;
-        for (const d of this.dashes) {
-            d.x -= dx;
-            if (d.x < -DASH_WIDTH) d.x += total;
-        }
+        // 地面セグメントを左へスクロール（体重で速度が鈍化）
+        const dx =
+            SCROLL_SPEED *
+            this.weightFactor(SPEED_PER_KG, SPEED_FACTOR_MIN) *
+            delta;
+        this.scrollSegments(dx);
 
-        // 簡易重力と着地
+        // 簡易重力と着地（真下にセグメントがあるときだけ着地、なければ落下し続ける）
         this.creatureVY += GRAVITY * delta;
         let y = this.creature.y + this.creatureVY * delta;
-        if (y >= this.groundY) {
+        if (this.hasGroundBelow() && y >= this.groundY && this.creatureVY >= 0) {
             y = this.groundY;
             this.creatureVY = 0;
         }
         this.creature.y = y;
+
+        // 画面下を一定量超えたら育成画面へ自動復帰
+        if (this.creature.y > this.scale.height + FALL_EXIT_MARGIN) {
+            useGameStore.getState().exitAction();
+            return;
+        }
 
         // チャージ中の潰し演出（地面にいるときのみ）
         this.applyChargeSquash();
