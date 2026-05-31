@@ -3,9 +3,11 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { findNewlyUnlocked } from '../achievements';
 
 export type Screen = 'title' | 'game';
+export type GameMode = 'care' | 'action'; // 育成画面 / 横スクロールアクション
 
 interface GameStore {
   screen: Screen;              // 現在表示中の画面
+  mode: GameMode;              // ゲーム本編のモード（育成 / アクション）
   name: string;                // プレイヤーが付けた生物の名前（カタカナ4文字）。空ならゲーム未開始。
   food: number;                // ごはんの回数（残数）
   days: number;                // 経過日数
@@ -21,6 +23,8 @@ interface GameStore {
   startGame: () => void;
   resetGame: () => void;
   goToTitle: () => void;
+  enterAction: () => void;
+  exitAction: () => void;
   setPaused: (paused: boolean) => void;
   setName: (name: string) => void;
   tick: () => void;
@@ -76,17 +80,21 @@ export const useGameStore = create<GameStore>()(
   persist(
     (set, get) => ({
   screen: 'title',
+  mode: 'care',
   ...INITIAL_STATE,
   isPaused: false,
   gameMinutes: INITIAL_GAME_MINUTES,
   startGame: () => set({ screen: 'game' }),
-  goToTitle: () => set({ screen: 'title', isPaused: false }),
+  goToTitle: () => set({ screen: 'title', mode: 'care', isPaused: false }),
+  enterAction: () => set({ mode: 'action' }),
+  exitAction: () => set({ mode: 'care' }),
   setPaused: (paused) => set({ isPaused: paused }),
   resetGame: () =>
     set({
       ...INITIAL_STATE,
       gameMinutes: INITIAL_GAME_MINUTES,
       isPaused: false,
+      mode: 'care',
       screen: 'game',
     }),
   setName: (name) => {
