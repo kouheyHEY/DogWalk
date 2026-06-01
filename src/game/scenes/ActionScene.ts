@@ -104,7 +104,8 @@ export class ActionScene extends Phaser.Scene {
         this.jump(holdMs);
     }
 
-    // キャラの両足とも地面セグメントの上にあるか（幅を考慮した厳しめの判定）。
+    // キャラの足元に地面があるか。
+    // 片足でも地面の上にあれば「地面あり」（= 両足とも地面外のときだけ落下）。
     private hasGroundBelow(): boolean {
         const halfW = this.creature.displayWidth * 0.5;
         const left = this.creature.x - halfW;
@@ -113,7 +114,7 @@ export class ActionScene extends Phaser.Scene {
             this.segments.some(
                 (s) => x >= s.rect.x && x <= s.rect.x + s.width,
             );
-        return isOver(left) && isOver(right);
+        return isOver(left) || isOver(right);
     }
 
     // キャラが地面より下に落ちている状態で塊の側面に重なっているか。
