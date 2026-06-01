@@ -279,8 +279,8 @@ export class ActionScene extends Phaser.Scene {
             delta;
         this.scrollSegments(dx);
 
-        if (!this.dashing) {
-            // 簡易重力と着地（真下にセグメントがあるときだけ着地、なければ落下し続ける）
+        if (!this.dashForward) {
+            // 通常時 / 突進の復帰フェーズ: 重力と着地
             this.creatureVY += GRAVITY * delta;
             let y = this.creature.y + this.creatureVY * delta;
             if (
@@ -293,7 +293,7 @@ export class ActionScene extends Phaser.Scene {
             }
             this.creature.y = y;
         } else {
-            // 突進中は重力を無効化（y は据え置き）
+            // 突進の前進フェーズだけ重力を無効化（y は据え置き）
             this.creatureVY = 0;
         }
 
