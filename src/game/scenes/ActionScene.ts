@@ -206,6 +206,7 @@ export class ActionScene extends Phaser.Scene {
     // 初期セグメントを画面右端まで埋める。
     private fillSegmentsRight() {
         const w = this.scale.width;
+        const segHeight = this.scale.height - this.groundY;
         let nextX = 0;
         if (this.segments.length > 0) {
             const last = this.segments[this.segments.length - 1];
@@ -213,9 +214,10 @@ export class ActionScene extends Phaser.Scene {
         }
         while (nextX < w + SEG_MAX_WIDTH) {
             const width = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
+            // 地面は groundY を上端として下端まで伸びる塊。色は背景より少し明るい灰色
             const rect = this.add
-                .rectangle(nextX, this.groundY, width, 2, 0xffffff, 0.6)
-                .setOrigin(0, 0.5);
+                .rectangle(nextX, this.groundY, width, segHeight, 0xffffff, 0.45)
+                .setOrigin(0, 0);
             this.segments.push({ rect, width });
             nextX += width + rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
         }
@@ -226,6 +228,7 @@ export class ActionScene extends Phaser.Scene {
         for (const s of this.segments) {
             s.rect.x -= dx;
         }
+        const segHeight = this.scale.height - this.groundY;
         while (
             this.segments.length > 0 &&
             this.segments[0].rect.x + this.segments[0].width < 0
@@ -237,7 +240,7 @@ export class ActionScene extends Phaser.Scene {
                 rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
             const newWidth = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
             s.rect.x = newX;
-            s.rect.setSize(newWidth, 2);
+            s.rect.setSize(newWidth, segHeight);
             s.width = newWidth;
             this.segments.push(s);
         }
@@ -249,9 +252,11 @@ export class ActionScene extends Phaser.Scene {
         const h = this.scale.height;
         this.groundY = h * GROUND_RATIO;
 
-        // 全セグメントの y を地面に合わせる
+        // 全セグメントの y と高さを地面に合わせる
+        const segHeight = h - this.groundY;
         for (const s of this.segments) {
             s.rect.y = this.groundY;
+            s.rect.setSize(s.width, segHeight);
         }
 
         // 右側のカバレッジを確保（初期化 or 画面が広がった場合）
@@ -282,8 +287,12 @@ export class ActionScene extends Phaser.Scene {
         if (!this.dashForward) {
             // 通常時 / 突進の復帰フェーズ: 重力と着地
             this.creatureVY += GRAVITY * delta;
-            let y = this.creature.y + this.creatureVY * delta;
+            const prevY = this.creature.y;
+            let y = prevY + this.creatureVY * delta;
+            // 一度地面より下に落ちたあとは、地面下から上方向へクランプしない
+            // （= 落下中に突進で「助かる」現象を防ぐ）
             if (
+                prevY <= this.groundY + 0.001 &&
                 this.hasGroundBelow() &&
                 y >= this.groundY &&
                 this.creatureVY >= 0
