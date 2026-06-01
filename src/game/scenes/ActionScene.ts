@@ -26,6 +26,9 @@ const SPEED_FACTOR_MIN = 0.5;
 const JUMP_PER_KG = 0.01; // ジャンプ力の 1kg あたり鈍化（控えめ）
 const JUMP_FACTOR_MIN = 0.6;
 
+// デバッグ描画（キャラ枠・足元マーカー・セグメント枠・地面ライン）。一時的にONで確認用。
+const DEBUG = true;
+
 interface GroundSegment {
     rect: Phaser.GameObjects.Rectangle;
     width: number;
@@ -46,6 +49,7 @@ export class ActionScene extends Phaser.Scene {
     private baseScale = 0.5;
     private segments: GroundSegment[] = [];
     private pointerDownAt: number | null = null;
+    private debugGfx?: Phaser.GameObjects.Graphics;
 
     constructor() {
         super({ key: "ActionScene" });
@@ -77,6 +81,10 @@ export class ActionScene extends Phaser.Scene {
                 color: "#ffffff",
             })
             .setOrigin(0.5, 0.5);
+
+        if (DEBUG) {
+            this.debugGfx = this.add.graphics().setDepth(1000);
+        }
 
         this.layout();
         this.scale.on("resize", this.layout, this);
@@ -117,15 +125,21 @@ export class ActionScene extends Phaser.Scene {
         return isOver(left) || isOver(right);
     }
 
-    // キャラが地面より下に落ちている状態で塊の側面に重なっているか。
-    private hitSegmentSide(): boolean {
-        if (this.creature.y <= this.groundY) return false;
+    // 落下中に塊の側面に重なっていたら、塊の左外側にキャラを押し出す。
+    // ゲームオーバーにはせず、塊が左へ流れるのに合わせて引きずられる挙動になる。
+    private resolveSideCollision() {
+        if (this.creature.y <= this.groundY) return;
         const halfW = this.creature.displayWidth * 0.5;
-        const left = this.creature.x - halfW;
-        const right = this.creature.x + halfW;
-        return this.segments.some(
-            (s) => s.rect.x < right && s.rect.x + s.width > left,
-        );
+        for (const s of this.segments) {
+            const segLeft = s.rect.x;
+            const segRight = s.rect.x + s.width;
+            if (
+                segLeft < this.creature.x + halfW &&
+                segRight > this.creature.x - halfW
+            ) {
+                this.creature.x = segLeft - halfW;
+            }
+        }
     }
 
     private isOnGround() {
@@ -243,13 +257,10 @@ export class ActionScene extends Phaser.Scene {
         }
         this.creature.y = y;
 
-        // 塊側面への衝突 → 育成画面へ復帰
-        if (this.hitSegmentSide()) {
-            useGameStore.getState().exitAction();
-            return;
-        }
+        // 塊側面へ重なっていたら、塊の左外側に押し出す（ゲームオーバーにはしない）
+        this.resolveSideCollision();
 
-        // 画面下を一定量超えたら育成画面へ自動復帰
+        // 画面下を一定量超えたら育成画面へ自動復帰（= ゲームオーバー）
         if (this.creature.y > this.scale.height + FALL_EXIT_MARGIN) {
             useGameStore.getState().exitAction();
             return;
@@ -257,6 +268,45 @@ export class ActionScene extends Phaser.Scene {
 
         // チャージ中の潰し演出（タップした瞬間から増えていく）
         this.applyChargeSquash();
+
+        if (DEBUG) this.drawDebug();
+    }
+
+    private drawDebug() {
+        if (!this.debugGfx) return;
+        const g = this.debugGfx;
+        g.clear();
+
+        const cx = this.creature.x;
+        const cy = this.creature.y;
+        const cw = this.creature.displayWidth;
+        const ch = this.creature.displayHeight;
+        const halfW = cw * 0.5;
+
+        // 地面ライン
+        g.lineStyle(1, 0x00ffff, 0.6);
+        g.beginPath();
+        g.moveTo(0, this.groundY);
+        g.lineTo(this.scale.width, this.groundY);
+        g.strokePath();
+
+        // セグメント枠
+        g.lineStyle(1, 0xffff00, 0.9);
+        for (const s of this.segments) {
+            g.strokeRect(s.rect.x, s.rect.y, s.width, s.rect.height);
+        }
+
+        // キャラの bounding box（緑）
+        g.lineStyle(2, 0x00ff00, 1);
+        g.strokeRect(cx - halfW, cy - ch, cw, ch);
+
+        // 足元マーカー（赤・左右）
+        g.fillStyle(0xff0000, 1);
+        g.fillCircle(cx - halfW, cy, 4);
+        g.fillCircle(cx + halfW, cy, 4);
+        // 中心点（マゼンタ）
+        g.fillStyle(0xff00ff, 1);
+        g.fillCircle(cx, cy, 3);
     }
 
     private applyChargeSquash() {
