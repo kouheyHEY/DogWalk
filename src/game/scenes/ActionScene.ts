@@ -15,6 +15,9 @@ const GAP_MAX_WIDTH = 170;
 
 const FALL_EXIT_MARGIN = 80; // 画面下からこの距離より下に落ちたら育成画面へ戻る
 
+const AFTERIMAGE_INTERVAL_MS = 60; // 突進中に残像を出す間隔
+const AFTERIMAGE_FADE_MS = 280; // 残像のフェード時間
+
 const TAP_THRESHOLD_MS = 180; // これ未満の押下は突進、以上はジャンプ
 const MAX_CHARGE_MS = 800; // フルチャージまでの押下時間
 const JUMP_MIN = 0.9; // 最小ジャンプ初速 (px / ms)
@@ -53,6 +56,8 @@ export class ActionScene extends Phaser.Scene {
     private segments: GroundSegment[] = [];
     private pointerDownAt: number | null = null;
     private dashing = false;
+    private dashForward = false; // 突進の前進フェーズ中だけ true（残像はこの間だけ出す）
+    private afterimageTimer = 0;
 
     constructor() {
         super({ key: "ActionScene" });
@@ -67,6 +72,8 @@ export class ActionScene extends Phaser.Scene {
         this.creatureVY = 0;
         this.pointerDownAt = null;
         this.dashing = false;
+        this.dashForward = false;
+        this.afterimageTimer = 0;
         this.segments = [];
 
         // キャラ（地面に立つ。原点は最下中央）
@@ -154,6 +161,7 @@ export class ActionScene extends Phaser.Scene {
     private dash() {
         if (this.dashing) return;
         this.dashing = true;
+        this.dashForward = true;
         const baseX = this.scale.width * 0.25;
         // キャラが画面外へ出ないよう右端でクランプ
         const maxX = this.scale.width - this.creature.displayWidth * 0.5 - 8;
@@ -166,6 +174,7 @@ export class ActionScene extends Phaser.Scene {
             duration: DASH_OUT_MS / slow,
             ease: "Linear",
             onComplete: () => {
+                this.dashForward = false;
                 this.tweens.add({
                     targets: this.creature,
                     x: baseX,
@@ -177,6 +186,20 @@ export class ActionScene extends Phaser.Scene {
                     },
                 });
             },
+        });
+    }
+
+    private spawnAfterimage() {
+        const ghost = this.add
+            .image(this.creature.x, this.creature.y, "creature")
+            .setOrigin(0.5, 1.0)
+            .setScale(this.creature.scaleX, this.creature.scaleY)
+            .setAlpha(0.45);
+        this.tweens.add({
+            targets: ghost,
+            alpha: 0,
+            duration: AFTERIMAGE_FADE_MS,
+            onComplete: () => ghost.destroy(),
         });
     }
 
@@ -256,19 +279,39 @@ export class ActionScene extends Phaser.Scene {
             delta;
         this.scrollSegments(dx);
 
-        // 簡易重力と着地（真下にセグメントがあるときだけ着地、なければ落下し続ける）
-        this.creatureVY += GRAVITY * delta;
-        let y = this.creature.y + this.creatureVY * delta;
-        if (this.hasGroundBelow() && y >= this.groundY && this.creatureVY >= 0) {
-            y = this.groundY;
+        if (!this.dashing) {
+            // 簡易重力と着地（真下にセグメントがあるときだけ着地、なければ落下し続ける）
+            this.creatureVY += GRAVITY * delta;
+            let y = this.creature.y + this.creatureVY * delta;
+            if (
+                this.hasGroundBelow() &&
+                y >= this.groundY &&
+                this.creatureVY >= 0
+            ) {
+                y = this.groundY;
+                this.creatureVY = 0;
+            }
+            this.creature.y = y;
+        } else {
+            // 突進中は重力を無効化（y は据え置き）
             this.creatureVY = 0;
         }
-        this.creature.y = y;
 
         // 画面下を一定量超えたら育成画面へ自動復帰
         if (this.creature.y > this.scale.height + FALL_EXIT_MARGIN) {
             useGameStore.getState().exitAction();
             return;
+        }
+
+        // 突進の前進フェーズ中は残像を出す
+        if (this.dashing && this.dashForward) {
+            this.afterimageTimer += delta;
+            while (this.afterimageTimer >= AFTERIMAGE_INTERVAL_MS) {
+                this.afterimageTimer -= AFTERIMAGE_INTERVAL_MS;
+                this.spawnAfterimage();
+            }
+        } else {
+            this.afterimageTimer = 0;
         }
 
         // チャージ中の潰し演出（地面にいるときのみ）
