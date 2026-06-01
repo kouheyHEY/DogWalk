@@ -41,23 +41,23 @@ export default function App() {
       className="relative flex flex-col w-screen h-screen overflow-hidden bg-black text-white"
       style={{ fontFamily: 'var(--pixel-jp)' }}
     >
-      {/* 上部: 育成モードのみステータス表示 */}
-      {mode === 'care' && (
-        <div className="flex justify-between items-start px-4 pt-16 pb-2 shrink-0">
-          <div className="text-2xl tabular-nums">
-            {formatClock(gameMinutes)} <span>{days}日目</span>
-          </div>
-          <div className="flex items-start gap-4">
-            <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-2 text-xl tabular-nums">
-              <span className="text-right">名前</span>
-              <span className="text-right">{name}</span>
-              <span className="text-right">体重</span>
-              <span className="text-right">{weight.toFixed(1)}kg</span>
-            </div>
-            <HamburgerMenu />
-          </div>
+      {/* 上部: バー領域は常に保持し、内容のみフェード（キャンバスサイズを変えないため） */}
+      <div
+        className={`flex justify-between items-start px-4 pt-16 pb-2 shrink-0 transition-opacity duration-200 ${mode === 'care' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+      >
+        <div className="text-2xl tabular-nums">
+          {formatClock(gameMinutes)} <span>{days}日目</span>
         </div>
-      )}
+        <div className="flex items-start gap-4">
+          <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-2 text-xl tabular-nums">
+            <span className="text-right">名前</span>
+            <span className="text-right">{name}</span>
+            <span className="text-right">体重</span>
+            <span className="text-right">{weight.toFixed(1)}kg</span>
+          </div>
+          <HamburgerMenu />
+        </div>
+      </div>
 
       {/* 中央: Phaser キャンバス（モード問わず常駐、シーンで切替） */}
       <div className="flex-1 relative">
@@ -80,38 +80,38 @@ export default function App() {
         className={`pointer-events-none absolute inset-0 bg-black transition-opacity duration-1000 ${isSleeping ? 'opacity-100' : 'opacity-0'}`}
       />
 
-      {/* 下部: 育成モードの操作ボタン */}
-      {mode === 'care' && (
-        <div className="flex gap-3 px-4 pt-2 pb-16 shrink-0">
-          <button
-            onClick={feed}
-            disabled={food <= 0 || isSleeping}
-            className="flex-1 py-4 text-white border-2 border-white bg-black active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
-          >
-            <span className="text-lg">ごはん</span>
-            <span className="text-sm tabular-nums">残数：{food}</span>
-          </button>
-          <button
-            onClick={sleep}
-            disabled={!canSleep}
-            className="flex-1 py-4 text-white border-2 border-white bg-black active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
-          >
-            <span className="text-lg">ねる</span>
-            <span className="text-sm tabular-nums text-center whitespace-pre-line">{sleepStatusLabel}</span>
-          </button>
-          <button
-            data-testid="enter-action"
-            onClick={enterAction}
-            disabled={isSleeping}
-            className="flex-1 py-4 text-white border-2 border-white bg-black active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
-          >
-            <span className="text-lg">あそぶ</span>
-            <span className="text-sm">アクション</span>
-          </button>
-        </div>
-      )}
+      {/* 下部: バー領域は常に保持し、内容のみフェード（キャンバスサイズを変えないため） */}
+      <div
+        className={`flex gap-3 px-4 pt-2 pb-16 shrink-0 transition-opacity duration-200 ${mode === 'care' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+      >
+        <button
+          onClick={feed}
+          disabled={food <= 0 || isSleeping}
+          className="flex-1 py-4 text-white border-2 border-white bg-black active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
+        >
+          <span className="text-lg">ごはん</span>
+          <span className="text-sm tabular-nums">残数：{food}</span>
+        </button>
+        <button
+          onClick={sleep}
+          disabled={!canSleep}
+          className="flex-1 py-4 text-white border-2 border-white bg-black active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
+        >
+          <span className="text-lg">ねる</span>
+          <span className="text-sm tabular-nums text-center whitespace-pre-line">{sleepStatusLabel}</span>
+        </button>
+        <button
+          data-testid="enter-action"
+          onClick={enterAction}
+          disabled={isSleeping}
+          className="flex-1 py-4 text-white border-2 border-white bg-black active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
+        >
+          <span className="text-lg">あそぶ</span>
+          <span className="text-sm">アクション</span>
+        </button>
+      </div>
 
-      {/* アクションモードの UI（戻る導線） */}
+      {/* アクションモードの「もどる」ボタン（バー領域の上に絶対配置） */}
       {mode === 'action' && (
         <div className="absolute top-0 left-0 right-0 flex justify-start px-4 pt-16 pb-2 z-10">
           <button
