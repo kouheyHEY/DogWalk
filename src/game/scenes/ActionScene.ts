@@ -15,26 +15,16 @@ const GAP_MAX_WIDTH = 170;
 
 const FALL_EXIT_MARGIN = 80; // 画面下からこの距離より下に落ちたら育成画面へ戻る
 
-const AFTERIMAGE_INTERVAL_MS = 60; // 突進中に残像を出す間隔
-const AFTERIMAGE_FADE_MS = 280; // 残像のフェード時間
-
-const TAP_THRESHOLD_MS = 180; // これ未満の押下は突進、以上はジャンプ
 const MAX_CHARGE_MS = 800; // フルチャージまでの押下時間
 const JUMP_MIN = 0.9; // 最小ジャンプ初速 (px / ms)
 const JUMP_MAX = 1.6; // 最大ジャンプ初速 (px / ms)
-const DASH_DISTANCE = 200; // 突進の前方移動量 (px)
-const DASH_OUT_MS = 960; // 突進の前進にかける時間（線形・遅め）
-const DASH_BACK_MS = 1280; // 突進の復帰にかける時間（線形・さらに遅め）
 
 // 体重による鈍化（でかいほど遅い/低い）。基準体重で 1.0、1kg ごとに係数が下がり、下限でクランプ。
-// ※将来実装予定の「突進の威力」などは逆に強化される想定（今回は未対応）。
 const WEIGHT_BASE = 5; // 基準体重 (kg)
 const SPEED_PER_KG = 0.02; // 前進速度の 1kg あたり鈍化
 const SPEED_FACTOR_MIN = 0.5;
 const JUMP_PER_KG = 0.01; // ジャンプ力の 1kg あたり鈍化（控えめ）
 const JUMP_FACTOR_MIN = 0.6;
-const DASH_PER_KG = 0.02; // 突進の 1kg あたり鈍化（所要時間が伸びる）
-const DASH_FACTOR_MIN = 0.5;
 
 interface GroundSegment {
     rect: Phaser.GameObjects.Rectangle;
@@ -46,7 +36,8 @@ function rand(min: number, max: number) {
 }
 
 // 横スクロールアクション用シーン。
-// Step 1: 連続地面を「セグメント＋ギャップ」に置き換え（視覚のみ／落下判定はまだ無し）。
+// タップした瞬間からチャージが始まり、離すとジャンプ（チャージ量でジャンプ力可変）。
+// 床は塊として描画され、キャラ幅を考慮した落下判定と、塊側面への衝突判定を行う。
 export class ActionScene extends Phaser.Scene {
     private creature!: Phaser.GameObjects.Image;
     private label!: Phaser.GameObjects.Text;
@@ -55,9 +46,6 @@ export class ActionScene extends Phaser.Scene {
     private baseScale = 0.5;
     private segments: GroundSegment[] = [];
     private pointerDownAt: number | null = null;
-    private dashing = false;
-    private dashForward = false; // 突進の前進フェーズ中だけ true（残像はこの間だけ出す）
-    private afterimageTimer = 0;
 
     constructor() {
         super({ key: "ActionScene" });
@@ -71,9 +59,6 @@ export class ActionScene extends Phaser.Scene {
         this.cameras.main.setBackgroundColor("#101820");
         this.creatureVY = 0;
         this.pointerDownAt = null;
-        this.dashing = false;
-        this.dashForward = false;
-        this.afterimageTimer = 0;
         this.segments = [];
 
         // キャラ（地面に立つ。原点は最下中央）
@@ -96,7 +81,7 @@ export class ActionScene extends Phaser.Scene {
         this.layout();
         this.scale.on("resize", this.layout, this);
 
-        // 入力: 押下時間でジャンプ/突進を分岐
+        // 入力: 押下中チャージ → 離すとジャンプ
         this.input.on("pointerdown", this.onPointerDown, this);
         this.input.on("pointerup", this.onPointerUp, this);
 
@@ -116,20 +101,30 @@ export class ActionScene extends Phaser.Scene {
         const holdMs = this.time.now - this.pointerDownAt;
         this.pointerDownAt = null;
         if (useGameStore.getState().isPaused) return;
-        if (holdMs < TAP_THRESHOLD_MS) {
-            this.dash();
-        } else {
-            this.jump(holdMs);
-        }
+        this.jump(holdMs);
     }
 
-    // キャラの真下に地面セグメントが存在するか。
+    // キャラの両足とも地面セグメントの上にあるか（幅を考慮した厳しめの判定）。
     private hasGroundBelow(): boolean {
-        const cx = this.creature.x;
-        for (const s of this.segments) {
-            if (cx >= s.rect.x && cx <= s.rect.x + s.width) return true;
-        }
-        return false;
+        const halfW = this.creature.displayWidth * 0.5;
+        const left = this.creature.x - halfW;
+        const right = this.creature.x + halfW;
+        const isOver = (x: number) =>
+            this.segments.some(
+                (s) => x >= s.rect.x && x <= s.rect.x + s.width,
+            );
+        return isOver(left) && isOver(right);
+    }
+
+    // キャラが地面より下に落ちている状態で塊の側面に重なっているか。
+    private hitSegmentSide(): boolean {
+        if (this.creature.y <= this.groundY) return false;
+        const halfW = this.creature.displayWidth * 0.5;
+        const left = this.creature.x - halfW;
+        const right = this.creature.x + halfW;
+        return this.segments.some(
+            (s) => s.rect.x < right && s.rect.x + s.width > left,
+        );
     }
 
     private isOnGround() {
@@ -148,59 +143,10 @@ export class ActionScene extends Phaser.Scene {
 
     private jump(holdMs: number) {
         if (!this.isOnGround()) return;
-        const ratio = Phaser.Math.Clamp(
-            (holdMs - TAP_THRESHOLD_MS) / (MAX_CHARGE_MS - TAP_THRESHOLD_MS),
-            0,
-            1,
-        );
+        const ratio = Phaser.Math.Clamp(holdMs / MAX_CHARGE_MS, 0, 1);
         const base = JUMP_MIN + ratio * (JUMP_MAX - JUMP_MIN);
         // 重いほどジャンプは低くなる
         this.creatureVY = -(base * this.weightFactor(JUMP_PER_KG, JUMP_FACTOR_MIN));
-    }
-
-    private dash() {
-        if (this.dashing) return;
-        this.dashing = true;
-        this.dashForward = true;
-        const baseX = this.scale.width * 0.25;
-        // キャラが画面外へ出ないよう右端でクランプ
-        const maxX = this.scale.width - this.creature.displayWidth * 0.5 - 8;
-        const targetX = Math.min(baseX + DASH_DISTANCE, maxX);
-        // 重いほど突進が遅くなる（所要時間が伸びる）
-        const slow = this.weightFactor(DASH_PER_KG, DASH_FACTOR_MIN);
-        this.tweens.add({
-            targets: this.creature,
-            x: targetX,
-            duration: DASH_OUT_MS / slow,
-            ease: "Linear",
-            onComplete: () => {
-                this.dashForward = false;
-                this.tweens.add({
-                    targets: this.creature,
-                    x: baseX,
-                    duration: DASH_BACK_MS / slow,
-                    ease: "Linear",
-                    onComplete: () => {
-                        this.dashing = false;
-                        this.creature.x = baseX;
-                    },
-                });
-            },
-        });
-    }
-
-    private spawnAfterimage() {
-        const ghost = this.add
-            .image(this.creature.x, this.creature.y, "creature")
-            .setOrigin(0.5, 1.0)
-            .setScale(this.creature.scaleX, this.creature.scaleY)
-            .setAlpha(0.45);
-        this.tweens.add({
-            targets: ghost,
-            alpha: 0,
-            duration: AFTERIMAGE_FADE_MS,
-            onComplete: () => ghost.destroy(),
-        });
     }
 
     // 初期セグメントを画面右端まで埋める。
@@ -214,7 +160,7 @@ export class ActionScene extends Phaser.Scene {
         }
         while (nextX < w + SEG_MAX_WIDTH) {
             const width = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
-            // 地面は groundY を上端として下端まで伸びる塊。色は背景より少し明るい灰色
+            // 地面は groundY 上端〜画面下端の塊。半透明白で背景から浮き上がらせる
             const rect = this.add
                 .rectangle(nextX, this.groundY, width, segHeight, 0xffffff, 0.45)
                 .setOrigin(0, 0);
@@ -262,11 +208,7 @@ export class ActionScene extends Phaser.Scene {
         // 右側のカバレッジを確保（初期化 or 画面が広がった場合）
         this.fillSegmentsRight();
 
-        // 突進中は x をツイードに任せる
-        if (!this.dashing) {
-            this.creature.x = w * 0.25;
-        }
-        // 着地中（落下していない）ときだけ地面に合わせる。ジャンプ中は重力で着地させる。
+        this.creature.x = w * 0.25;
         if (this.creatureVY === 0) {
             this.creature.y = this.groundY;
         }
@@ -284,26 +226,26 @@ export class ActionScene extends Phaser.Scene {
             delta;
         this.scrollSegments(dx);
 
-        if (!this.dashForward) {
-            // 通常時 / 突進の復帰フェーズ: 重力と着地
-            this.creatureVY += GRAVITY * delta;
-            const prevY = this.creature.y;
-            let y = prevY + this.creatureVY * delta;
-            // 一度地面より下に落ちたあとは、地面下から上方向へクランプしない
-            // （= 落下中に突進で「助かる」現象を防ぐ）
-            if (
-                prevY <= this.groundY + 0.001 &&
-                this.hasGroundBelow() &&
-                y >= this.groundY &&
-                this.creatureVY >= 0
-            ) {
-                y = this.groundY;
-                this.creatureVY = 0;
-            }
-            this.creature.y = y;
-        } else {
-            // 突進の前進フェーズだけ重力を無効化（y は据え置き）
+        // 簡易重力と着地
+        this.creatureVY += GRAVITY * delta;
+        const prevY = this.creature.y;
+        let y = prevY + this.creatureVY * delta;
+        // 一度地面より下に落ちたあとは、地面下から上方向へクランプしない
+        if (
+            prevY <= this.groundY + 0.001 &&
+            this.hasGroundBelow() &&
+            y >= this.groundY &&
+            this.creatureVY >= 0
+        ) {
+            y = this.groundY;
             this.creatureVY = 0;
+        }
+        this.creature.y = y;
+
+        // 塊側面への衝突 → 育成画面へ復帰
+        if (this.hitSegmentSide()) {
+            useGameStore.getState().exitAction();
+            return;
         }
 
         // 画面下を一定量超えたら育成画面へ自動復帰
@@ -312,30 +254,14 @@ export class ActionScene extends Phaser.Scene {
             return;
         }
 
-        // 突進の前進フェーズ中は残像を出す
-        if (this.dashing && this.dashForward) {
-            this.afterimageTimer += delta;
-            while (this.afterimageTimer >= AFTERIMAGE_INTERVAL_MS) {
-                this.afterimageTimer -= AFTERIMAGE_INTERVAL_MS;
-                this.spawnAfterimage();
-            }
-        } else {
-            this.afterimageTimer = 0;
-        }
-
-        // チャージ中の潰し演出（地面にいるときのみ）
+        // チャージ中の潰し演出（タップした瞬間から増えていく）
         this.applyChargeSquash();
     }
 
     private applyChargeSquash() {
         if (this.pointerDownAt !== null && this.isOnGround()) {
             const holdMs = this.time.now - this.pointerDownAt;
-            const ratio = Phaser.Math.Clamp(
-                (holdMs - TAP_THRESHOLD_MS) /
-                    (MAX_CHARGE_MS - TAP_THRESHOLD_MS),
-                0,
-                1,
-            );
+            const ratio = Phaser.Math.Clamp(holdMs / MAX_CHARGE_MS, 0, 1);
             this.creature.setScale(
                 this.baseScale * (1 + 0.12 * ratio),
                 this.baseScale * (1 - 0.18 * ratio),
