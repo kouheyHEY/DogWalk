@@ -26,7 +26,11 @@ const SPEED_FACTOR_MIN = 0.5;
 const JUMP_PER_KG = 0.01; // ジャンプ力の 1kg あたり鈍化（控えめ）
 const JUMP_FACTOR_MIN = 0.6;
 
-// デバッグ描画（キャラ枠・足元マーカー・セグメント枠・地面ライン）。一時的にONで確認用。
+// キャラの当たり判定幅 / displayWidth の比率。
+// PNG (128x128) には透明余白があり、見た目のキャラよりほんの少しだけ狭くなるように調整する。
+const COLLISION_WIDTH_RATIO = 0.4;
+
+// デバッグ描画（スプライト枠・当たり判定・足元マーカー・セグメント枠・地面ライン）。一時的にONで確認用。
 const DEBUG = true;
 
 interface GroundSegment {
@@ -112,10 +116,15 @@ export class ActionScene extends Phaser.Scene {
         this.jump(holdMs);
     }
 
+    // 当たり判定の半幅（見た目のキャラよりほんの少しだけ狭い）。
+    private collisionHalfWidth(): number {
+        return this.creature.displayWidth * COLLISION_WIDTH_RATIO * 0.5;
+    }
+
     // キャラの足元に地面があるか。
     // 片足でも地面の上にあれば「地面あり」（= 両足とも地面外のときだけ落下）。
     private hasGroundBelow(): boolean {
-        const halfW = this.creature.displayWidth * 0.5;
+        const halfW = this.collisionHalfWidth();
         const left = this.creature.x - halfW;
         const right = this.creature.x + halfW;
         const isOver = (x: number) =>
@@ -129,7 +138,7 @@ export class ActionScene extends Phaser.Scene {
     // ゲームオーバーにはせず、塊が左へ流れるのに合わせて引きずられる挙動になる。
     private resolveSideCollision() {
         if (this.creature.y <= this.groundY) return;
-        const halfW = this.creature.displayWidth * 0.5;
+        const halfW = this.collisionHalfWidth();
         for (const s of this.segments) {
             const segLeft = s.rect.x;
             const segRight = s.rect.x + s.width;
@@ -281,29 +290,34 @@ export class ActionScene extends Phaser.Scene {
         const cy = this.creature.y;
         const cw = this.creature.displayWidth;
         const ch = this.creature.displayHeight;
-        const halfW = cw * 0.5;
+        const spriteHalfW = cw * 0.5;
+        const collisionHalfW = this.collisionHalfWidth();
 
-        // 地面ライン
-        g.lineStyle(1, 0x00ffff, 0.6);
+        // 地面ライン（シアン）
+        g.lineStyle(1, 0x00ffff, 0.5);
         g.beginPath();
         g.moveTo(0, this.groundY);
         g.lineTo(this.scale.width, this.groundY);
         g.strokePath();
 
-        // セグメント枠
+        // セグメント枠（黄）
         g.lineStyle(1, 0xffff00, 0.9);
         for (const s of this.segments) {
             g.strokeRect(s.rect.x, s.rect.y, s.width, s.rect.height);
         }
 
-        // キャラの bounding box（緑）
-        g.lineStyle(2, 0x00ff00, 1);
-        g.strokeRect(cx - halfW, cy - ch, cw, ch);
+        // スプライト全体の枠（緑、透明余白込み）
+        g.lineStyle(2, 0x00ff00, 0.8);
+        g.strokeRect(cx - spriteHalfW, cy - ch, cw, ch);
 
-        // 足元マーカー（赤・左右）
+        // 当たり判定の枠（シアン、見た目キャラよりわずかに狭い）
+        g.lineStyle(2, 0x00ffff, 1);
+        g.strokeRect(cx - collisionHalfW, cy - ch, collisionHalfW * 2, ch);
+
+        // 足元マーカー（赤・当たり判定の左右端 = 落下判定の基準点）
         g.fillStyle(0xff0000, 1);
-        g.fillCircle(cx - halfW, cy, 4);
-        g.fillCircle(cx + halfW, cy, 4);
+        g.fillCircle(cx - collisionHalfW, cy, 4);
+        g.fillCircle(cx + collisionHalfW, cy, 4);
         // 中心点（マゼンタ）
         g.fillStyle(0xff00ff, 1);
         g.fillCircle(cx, cy, 3);
