@@ -30,6 +30,13 @@ const JUMP_FACTOR_MIN = 0.6;
 // PNG (128x128) には透明余白があり、見た目のキャラよりほんの少しだけ狭くなるように調整する。
 const COLLISION_WIDTH_RATIO = 0.4;
 
+// ごはん（取得アイテム）の設定。仮素材として白い小四角を出す。
+const FOOD_SIZE = 14;
+const FOOD_MIN_INTERVAL_MS = 1500;
+const FOOD_MAX_INTERVAL_MS = 3500;
+const FOOD_MIN_HEIGHT_ABOVE_GROUND = 8; // 地面から最低この高さに出る
+const FOOD_MAX_HEIGHT_ABOVE_GROUND = 130; // ジャンプで届く範囲に収めた高さ
+
 // デバッグ描画（スプライト枠・当たり判定・足元マーカー・セグメント枠・地面ライン）。一時的にONで確認用。
 const DEBUG = true;
 
@@ -52,6 +59,8 @@ export class ActionScene extends Phaser.Scene {
     private creatureVY = 0; // 垂直速度 (px / ms)
     private baseScale = 0.5;
     private segments: GroundSegment[] = [];
+    private foods: Phaser.GameObjects.Rectangle[] = [];
+    private nextFoodSpawnAt = 0;
     private pointerDownAt: number | null = null;
     private debugGfx?: Phaser.GameObjects.Graphics;
 
@@ -68,6 +77,8 @@ export class ActionScene extends Phaser.Scene {
         this.creatureVY = 0;
         this.pointerDownAt = null;
         this.segments = [];
+        this.foods = [];
+        this.nextFoodSpawnAt = 0; // 初回スポーン時刻は layout 後に設定する
 
         // キャラ（地面に立つ。原点は最下中央）
         const { weight } = useGameStore.getState();
@@ -91,6 +102,8 @@ export class ActionScene extends Phaser.Scene {
         }
 
         this.layout();
+        this.nextFoodSpawnAt =
+            this.time.now + rand(FOOD_MIN_INTERVAL_MS, FOOD_MAX_INTERVAL_MS);
         this.scale.on("resize", this.layout, this);
 
         // 入力: 押下中チャージ → 離すとジャンプ
@@ -193,6 +206,62 @@ export class ActionScene extends Phaser.Scene {
         }
     }
 
+    // ごはんを画面右端の少し外に出現させる。y は地面より上のジャンプで届く範囲でランダム。
+    private spawnFood() {
+        const heightAbove = rand(
+            FOOD_MIN_HEIGHT_ABOVE_GROUND,
+            FOOD_MAX_HEIGHT_ABOVE_GROUND,
+        );
+        const x = this.scale.width + 20;
+        // origin (0, 0) なので rect.y は上端
+        const y = this.groundY - heightAbove - FOOD_SIZE;
+        const f = this.add
+            .rectangle(x, y, FOOD_SIZE, FOOD_SIZE, 0xffffff, 1)
+            .setOrigin(0, 0);
+        this.foods.push(f);
+    }
+
+    // 全ごはんを左へスクロール、画面外に出たものは破棄。
+    private scrollFoods(dx: number) {
+        for (const f of this.foods) {
+            f.x -= dx;
+        }
+        this.foods = this.foods.filter((f) => {
+            if (f.x + FOOD_SIZE < 0) {
+                f.destroy();
+                return false;
+            }
+            return true;
+        });
+    }
+
+    // キャラの当たり判定とごはんの AABB が重なれば取得して破棄。
+    private checkFoodCollisions() {
+        const halfW = this.collisionHalfWidth();
+        const cLeft = this.creature.x - halfW;
+        const cRight = this.creature.x + halfW;
+        const cBottom = this.creature.y;
+        const cTop = this.creature.y - this.creature.displayHeight;
+
+        this.foods = this.foods.filter((f) => {
+            const fLeft = f.x;
+            const fRight = f.x + FOOD_SIZE;
+            const fTop = f.y;
+            const fBottom = f.y + FOOD_SIZE;
+            if (
+                cLeft < fRight &&
+                cRight > fLeft &&
+                cTop < fBottom &&
+                cBottom > fTop
+            ) {
+                f.destroy();
+                useGameStore.getState().gainFood();
+                return false;
+            }
+            return true;
+        });
+    }
+
     // 左へスクロールし、画面外に出たセグメントは右に再配置する。
     private scrollSegments(dx: number) {
         for (const s of this.segments) {
@@ -250,6 +319,15 @@ export class ActionScene extends Phaser.Scene {
             delta;
         this.scrollSegments(dx);
 
+        // ごはんのスポーン＆スクロール
+        if (this.time.now >= this.nextFoodSpawnAt) {
+            this.spawnFood();
+            this.nextFoodSpawnAt =
+                this.time.now +
+                rand(FOOD_MIN_INTERVAL_MS, FOOD_MAX_INTERVAL_MS);
+        }
+        this.scrollFoods(dx);
+
         // 簡易重力と着地
         this.creatureVY += GRAVITY * delta;
         const prevY = this.creature.y;
@@ -268,6 +346,9 @@ export class ActionScene extends Phaser.Scene {
 
         // 塊側面へ重なっていたら、塊の左外側に押し出す（ゲームオーバーにはしない）
         this.resolveSideCollision();
+
+        // ごはんとの当たり判定
+        this.checkFoodCollisions();
 
         // 画面下を一定量超えたら育成画面へ自動復帰（= ゲームオーバー）
         if (this.creature.y > this.scale.height + FALL_EXIT_MARGIN) {
@@ -304,6 +385,12 @@ export class ActionScene extends Phaser.Scene {
         g.lineStyle(1, 0xffff00, 0.9);
         for (const s of this.segments) {
             g.strokeRect(s.rect.x, s.rect.y, s.width, s.rect.height);
+        }
+
+        // ごはん枠（オレンジ）
+        g.lineStyle(1, 0xff8800, 1);
+        for (const f of this.foods) {
+            g.strokeRect(f.x, f.y, FOOD_SIZE, FOOD_SIZE);
         }
 
         // スプライト全体の枠（緑、透明余白込み）

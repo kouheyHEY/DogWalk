@@ -30,6 +30,7 @@ interface GameStore {
   tick: () => void;
   feed: () => void;
   sleep: () => void;
+  gainFood: (amount?: number) => void; // アクションモードのごはん取得などで残数を増やす
   consumeUnlock: () => string | null; // recentUnlocks の先頭を取り出して返す（UI用）
 }
 
@@ -89,6 +90,7 @@ export const useGameStore = create<GameStore>()(
   enterAction: () => set({ mode: 'action' }),
   exitAction: () => set({ mode: 'care' }),
   setPaused: (paused) => set({ isPaused: paused }),
+  gainFood: (amount = 1) => set((s) => ({ food: s.food + amount })),
   resetGame: () =>
     set({
       ...INITIAL_STATE,
