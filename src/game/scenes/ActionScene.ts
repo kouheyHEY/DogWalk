@@ -27,8 +27,10 @@ const SPEED_FACTOR_MIN = 0.5;
 const JUMP_PER_KG = 0.01;
 const JUMP_FACTOR_MIN = 0.6;
 
-// キャラの当たり判定幅 / displayWidth の比率（透明余白対策）
-const COLLISION_WIDTH_RATIO = 0.4;
+// キャラの当たり判定 / テクスチャの比率（PNG の透明余白を除外するため）。
+// スプライト下半分にキャラが居る前提で、ボディは下寄せに配置する。
+const COLLISION_WIDTH_RATIO = 0.5;
+const COLLISION_HEIGHT_RATIO = 0.5;
 
 // ごはん
 const FOOD_SIZE = 14;
@@ -98,11 +100,14 @@ export class ActionScene extends Phaser.Scene {
             .setOrigin(0.5, 1.0)
             .setScale(this.baseScale);
         const body = this.creature.body as Phaser.Physics.Arcade.Body;
-        // body.setSize はテクスチャピクセル単位なので width/height（=テクスチャ128）を使う
-        body.setSize(
-            this.creature.width * COLLISION_WIDTH_RATIO,
-            this.creature.height,
-            true,
+        // body.setSize / setOffset はテクスチャピクセル単位。
+        // 水平方向は中央配置、垂直方向はテクスチャ下端に揃える（上半分の透明余白を除外）。
+        const bodyW = this.creature.width * COLLISION_WIDTH_RATIO;
+        const bodyH = this.creature.height * COLLISION_HEIGHT_RATIO;
+        body.setSize(bodyW, bodyH, false);
+        body.setOffset(
+            (this.creature.width - bodyW) / 2,
+            this.creature.height - bodyH,
         );
 
         // 地面セグメント・ごはん用の静的グループ
@@ -112,14 +117,10 @@ export class ActionScene extends Phaser.Scene {
         // 衝突応答（着地・側面押し出しを物理に任せる）
         this.physics.add.collider(this.creature, this.segmentGroup);
         // ごはんはオーバーラップで取得処理
-        this.physics.add.overlap(
-            this.creature,
-            this.foodGroup,
-            (_c, food) => {
-                (food as Phaser.GameObjects.GameObject).destroy();
-                useGameStore.getState().gainFood();
-            },
-        );
+        this.physics.add.overlap(this.creature, this.foodGroup, (_c, food) => {
+            (food as Phaser.GameObjects.GameObject).destroy();
+            useGameStore.getState().gainFood();
+        });
 
         this.label = this.add
             .text(0, 0, "ACTION (WIP)", {
@@ -213,8 +214,9 @@ export class ActionScene extends Phaser.Scene {
         const segHeight = this.scale.height - this.groundY;
         for (const s of this.segments) {
             s.rect.x -= dx;
-            (s.rect.body as Phaser.Physics.Arcade.StaticBody)
-                .updateFromGameObject();
+            (
+                s.rect.body as Phaser.Physics.Arcade.StaticBody
+            ).updateFromGameObject();
         }
         while (
             this.segments.length > 0 &&
