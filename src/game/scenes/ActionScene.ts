@@ -66,7 +66,13 @@ export class ActionScene extends Phaser.Scene {
     private debugGfx?: Phaser.GameObjects.Graphics;
 
     constructor() {
-        super({ key: "ActionScene" });
+        super({
+            key: "ActionScene",
+            physics: {
+                default: "arcade",
+                arcade: { debug: false },
+            },
+        });
     }
 
     preload() {
@@ -92,10 +98,10 @@ export class ActionScene extends Phaser.Scene {
             .setOrigin(0.5, 1.0)
             .setScale(this.baseScale);
         const body = this.creature.body as Phaser.Physics.Arcade.Body;
-        // 当たり判定はスプライト幅より狭く、画像の中央に配置
+        // body.setSize はテクスチャピクセル単位なので width/height（=テクスチャ128）を使う
         body.setSize(
-            this.creature.displayWidth * COLLISION_WIDTH_RATIO,
-            this.creature.displayHeight,
+            this.creature.width * COLLISION_WIDTH_RATIO,
+            this.creature.height,
             true,
         );
 
