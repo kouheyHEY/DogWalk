@@ -29,8 +29,9 @@ const JUMP_FACTOR_MIN = 0.6;
 
 // キャラの当たり判定 / テクスチャの比率（PNG の透明余白を除外するため）。
 // スプライト下半分にキャラが居る前提で、ボディは下寄せに配置する。
+// 横は見た目より気持ち広い程度に絞り、足場の左側面で「ボディだけ手前にはみ出る」のを抑える。
 const COLLISION_WIDTH_RATIO = 0.5;
-const COLLISION_HEIGHT_RATIO = 0.5;
+const COLLISION_HEIGHT_RATIO = 0.3;
 
 // ごはん
 const FOOD_SIZE = 14;
@@ -60,9 +61,9 @@ export class ActionScene extends Phaser.Scene {
     private baseScale = 0.5;
     private baseX = 0;
     private segments: GroundSegment[] = [];
-    private segmentGroup!: Phaser.Physics.Arcade.StaticGroup;
+    private segmentGroup!: Phaser.Physics.Arcade.Group;
     private foods: Phaser.GameObjects.Rectangle[] = [];
-    private foodGroup!: Phaser.Physics.Arcade.StaticGroup;
+    private foodGroup!: Phaser.Physics.Arcade.Group;
     private nextFoodSpawnAt = 0;
     private pointerDownAt: number | null = null;
     private debugGfx?: Phaser.GameObjects.Graphics;
@@ -110,9 +111,17 @@ export class ActionScene extends Phaser.Scene {
             this.creature.height - bodyH,
         );
 
-        // 地面セグメント・ごはん用の静的グループ
-        this.segmentGroup = this.physics.add.staticGroup();
-        this.foodGroup = this.physics.add.staticGroup();
+        // 地面セグメント・ごはん用のグループ。
+        // 動的不動 (immovable + allowGravity=false) にして velocity で動かす。
+        // 静的だと手動位置変更時に side collision の押し戻しがうまく走らない。
+        this.segmentGroup = this.physics.add.group({
+            allowGravity: false,
+            immovable: true,
+        });
+        this.foodGroup = this.physics.add.group({
+            allowGravity: false,
+            immovable: true,
+        });
 
         // 衝突応答（着地・側面押し出しを物理に任せる）
         this.physics.add.collider(this.creature, this.segmentGroup);
@@ -186,9 +195,12 @@ export class ActionScene extends Phaser.Scene {
             .rectangle(x, this.groundY, width, segHeight, 0xffffff, 0.45)
             .setOrigin(0, 0);
         this.segmentGroup.add(rect);
-        const body = rect.body as Phaser.Physics.Arcade.StaticBody;
+        const body = rect.body as Phaser.Physics.Arcade.Body;
         body.setSize(width, segHeight);
-        body.updateFromGameObject();
+        body.setAllowGravity(false);
+        body.setImmovable(true);
+        // velocity は毎フレーム update() で再設定するのでここでは仮値
+        body.setVelocityX(0);
         return rect;
     }
 
@@ -209,15 +221,22 @@ export class ActionScene extends Phaser.Scene {
         }
     }
 
-    // 左へスクロール、画面外で右に再配置。静的ボディは updateFromGameObject で同期。
-    private scrollSegments(dx: number) {
-        const segHeight = this.scale.height - this.groundY;
+    // 各セグメントに現在の前進速度（左方向）を適用する。
+    private applySegmentVelocity() {
+        const vx =
+            -SCROLL_SPEED * this.weightFactor(SPEED_PER_KG, SPEED_FACTOR_MIN);
         for (const s of this.segments) {
-            s.rect.x -= dx;
-            (
-                s.rect.body as Phaser.Physics.Arcade.StaticBody
-            ).updateFromGameObject();
+            (s.rect.body as Phaser.Physics.Arcade.Body).setVelocityX(vx);
         }
+        for (const f of this.foods) {
+            if (!f.active) continue;
+            (f.body as Phaser.Physics.Arcade.Body | null)?.setVelocityX(vx);
+        }
+    }
+
+    // 画面外（左）に出たセグメントを右端にリサイクル。新サイズ＆ギャップで再配置。
+    private recycleSegments() {
+        const segHeight = this.scale.height - this.groundY;
         while (
             this.segments.length > 0 &&
             this.segments[0].rect.x + this.segments[0].width < 0
@@ -228,12 +247,12 @@ export class ActionScene extends Phaser.Scene {
                 (last ? last.rect.x + last.width : 0) +
                 rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
             const newWidth = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
-            s.rect.x = newX;
             s.rect.setSize(newWidth, segHeight);
             s.width = newWidth;
-            const body = s.rect.body as Phaser.Physics.Arcade.StaticBody;
+            const body = s.rect.body as Phaser.Physics.Arcade.Body;
             body.setSize(newWidth, segHeight);
-            body.updateFromGameObject();
+            // body.reset は body と GameObject を (x, y) に移動し、velocity を 0 にする
+            body.reset(newX, this.groundY);
             this.segments.push(s);
         }
     }
@@ -249,20 +268,16 @@ export class ActionScene extends Phaser.Scene {
             .rectangle(x, y, FOOD_SIZE, FOOD_SIZE, 0xffffff, 1)
             .setOrigin(0, 0);
         this.foodGroup.add(f);
-        const body = f.body as Phaser.Physics.Arcade.StaticBody;
+        const body = f.body as Phaser.Physics.Arcade.Body;
         body.setSize(FOOD_SIZE, FOOD_SIZE);
-        body.updateFromGameObject();
+        body.setAllowGravity(false);
+        body.setImmovable(true);
+        body.setVelocityX(0); // update() で再設定
         this.foods.push(f);
     }
 
-    private scrollFoods(dx: number) {
-        for (const f of this.foods) {
-            if (!f.active) continue;
-            f.x -= dx;
-            const body = f.body as Phaser.Physics.Arcade.StaticBody | null;
-            if (body) body.updateFromGameObject();
-        }
-        // 取得済み（destroy 済み = !active）か、画面外左に出たものを除去
+    // 画面外（左）or 取得済みのごはんを除去。
+    private cullFoods() {
         this.foods = this.foods.filter((f) => {
             if (!f.active) return false;
             if (f.x + FOOD_SIZE < 0) {
@@ -281,11 +296,12 @@ export class ActionScene extends Phaser.Scene {
 
         const segHeight = h - this.groundY;
         for (const s of this.segments) {
-            s.rect.y = this.groundY;
+            const body = s.rect.body as Phaser.Physics.Arcade.Body;
+            const vx = body.velocity.x;
             s.rect.setSize(s.width, segHeight);
-            const body = s.rect.body as Phaser.Physics.Arcade.StaticBody;
             body.setSize(s.width, segHeight);
-            body.updateFromGameObject();
+            body.reset(s.rect.x, this.groundY);
+            body.setVelocityX(vx);
         }
 
         this.fillSegmentsRight();
@@ -307,12 +323,9 @@ export class ActionScene extends Phaser.Scene {
         }
         if (paused) return;
 
-        // 体重で鈍化したスクロール量（px = px/s × s）
-        const dx =
-            SCROLL_SPEED *
-            this.weightFactor(SPEED_PER_KG, SPEED_FACTOR_MIN) *
-            (delta / 1000);
-        this.scrollSegments(dx);
+        // セグメントとごはんに体重に応じた前進速度を毎フレーム適用（Phaser 物理が動かす）
+        this.applySegmentVelocity();
+        this.recycleSegments();
 
         // ごはんのスポーン
         if (this.time.now >= this.nextFoodSpawnAt) {
@@ -321,7 +334,7 @@ export class ActionScene extends Phaser.Scene {
                 this.time.now +
                 rand(FOOD_MIN_INTERVAL_MS, FOOD_MAX_INTERVAL_MS);
         }
-        this.scrollFoods(dx);
+        this.cullFoods();
 
         // ゲームオーバー判定（画面下まで落ちきったら）
         if (this.creature.y > this.scale.height + FALL_EXIT_MARGIN) {
