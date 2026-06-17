@@ -32,31 +32,32 @@
 
 ---
 
-## 「完成」に向けた残タスク（2026-06-17 ユーザー確定）
+## 「完成」スコープ（2026-06-17 ユーザー確定 → 2026-06-18 全完了）
 
 > 確定スコープ: A(当たり判定=C案で単純化) → B(リリース整備) → C(成長スプライト) → D(BGM/SE)
 
-### A. アクションモードの当たり判定を単純化（ユーザー確定: C 案）
-- 「迫ってくる壁との側面衝突」は**やめる**。穴に落ちたら育成画面へ戻るだけにする。
-- 未コミット WIP のうち、足場の画面外下延長（`SEGMENT_BELOW_DEPTH`）と深い落下猶予
-  （`FALL_EXIT_MARGIN=450`）は側面衝突のための仕掛けなので**撤回**。落下判定は素直に
-  （画面下を少し超えたら戻る）。重力・ジャンプは見た目自然な値に整える。
+### ✅ A. アクションモードの当たり判定を単純化（C 案）
+- 側面衝突を撤回。穴に落ちたら育成画面へ戻るだけ。
+- `SEGMENT_BELOW_DEPTH` を廃止、`FALL_EXIT_MARGIN` を 80 に戻す。
+- 重力/ジャンプを自然値（4000 / 900-1600）に復帰。
 
-### B. リリース整備
-- `src/game/scenes/ActionScene.ts` の `const DEBUG = true;` → **false**
-- `"ACTION (WIP)"` ラベル除去
-- ※ A の実機確認に DEBUG 枠を使うため、A 完了後に実施。
+### ✅ B. リリース整備
+- `ActionScene.ts` の `DEBUG=false`、`"ACTION (WIP)"` ラベル除去。
 
-### C. スプライト素材（成長ステージの見た目）
-- 現状 `public/assets/` は `creature_1_baby_stop.png` のみ。
-- 必要: `creature_2_child_stop`, `creature_3_adult_stop`（＋できれば `*_walk_*`）。
-- `MainScene.ts` の preload とステージ切替（`stageNoOf(weight)` で 1/2/3）に配線。
-- 生成手段: `/pixel-art-draft` スキルで仮ドット絵 PNG を作る（128x128・白・透過）。
+### ✅ C. スプライト素材（成長ステージの見た目）
+- `creature_2_child_stop.png` / `creature_3_adult_stop.png` を生成（白基調・透過・ピクセルアート）。
+- `MainScene.ts` の preload に追加。`update()` が `stageNoOf(weight)`（10/25kg しきい値）で自動切替。
+- `src/growth.test.ts` でステージ→キー対応をテスト。
 
-### D. 任意ポリッシュ
-- アクションのスコア/結果を育成側へ還元（取得ごはん→`food` 等、一部実装済みか要確認）
-- 状態異常（空腹・眠気）のセリフ/表現
-- BGM / SE（`/midi-composer` で seed を作る）
+### ✅ D. BGM / SE
+- `src/audio/sound.ts`: WebAudio チップチューン音源（MIDI はブラウザ非対応のため自前合成）。
+  - SE: ごはん / ねる / ごはん取得 / 実績解除。BGM: やさしいループ。
+  - ミュート切替（localStorage 永続）・自動再生アンロック。
+- `docs/bgm_seed.mid`: DAW 取り込み用シード（メロディは `BGM` 配列と対応）。
+- `src/audio/sound.test.ts` で純粋ロジックをテスト。
+
+### 今後の任意ポリッシュ（完成後の伸びしろ）
+- 歩きアニメ（`*_walk_*`）、アクションのスコア表示、状態異常セリフ、ステージ別 BGM など。
 
 ---
 
