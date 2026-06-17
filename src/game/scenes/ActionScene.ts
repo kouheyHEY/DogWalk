@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { useGameStore } from "../../store/gameStore";
+import { sound } from "../../audio/sound";
 
 const SCALE_PER_KG = 0.1; // MainScene と同じ基準
 
@@ -129,6 +130,7 @@ export class ActionScene extends Phaser.Scene {
         this.physics.add.overlap(this.creature, this.foodGroup, (_c, food) => {
             (food as Phaser.GameObjects.GameObject).destroy();
             useGameStore.getState().gainFood();
+            sound.playSE("pickup");
         });
 
         if (DEBUG) {

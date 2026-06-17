@@ -1,10 +1,21 @@
 import { useGameStore } from '../store/gameStore';
+import { sound } from '../audio/sound';
 
 export function TitleScreen() {
   const name = useGameStore((s) => s.name);
   const startGame = useGameStore((s) => s.startGame);
   const resetGame = useGameStore((s) => s.resetGame);
   const hasSave = name !== '';
+
+  // 最初のユーザー操作で AudioContext をアンロック（自動再生制限の解除）
+  const handleContinue = () => {
+    sound.unlock();
+    startGame();
+  };
+  const handleStart = () => {
+    sound.unlock();
+    resetGame();
+  };
 
   return (
     <div
@@ -16,7 +27,7 @@ export function TitleScreen() {
         {hasSave && (
           <button
             data-testid="title-continue"
-            onClick={startGame}
+            onClick={handleContinue}
             className="py-3 text-2xl border-2 border-white bg-black active:bg-white active:text-black"
           >
             つづける
@@ -24,7 +35,7 @@ export function TitleScreen() {
         )}
         <button
           data-testid="title-start"
-          onClick={resetGame}
+          onClick={handleStart}
           className="py-3 text-2xl border-2 border-white bg-black active:bg-white active:text-black"
         >
           はじめる

@@ -5,6 +5,7 @@ import { HamburgerMenu } from './components/HamburgerMenu';
 import { NameInputModal } from './components/NameInputModal';
 import { TitleScreen } from './components/TitleScreen';
 import { useGameStore, SLEEP_COOLDOWN_MIN } from './store/gameStore';
+import { sound } from './audio/sound';
 
 function formatClock(gameMinutes: number): string {
   const m = ((gameMinutes % 1440) + 1440) % 1440;
@@ -24,6 +25,22 @@ export default function App() {
     const id = setInterval(() => tick(), 1000);
     return () => clearInterval(id);
   }, [screen, name, isPaused, tick]);
+
+  // BGM: ゲーム画面（名前入力済み）で再生、タイトルに戻ったら停止。
+  // 実際の発音はユーザー操作で AudioContext がアンロックされてから始まる。
+  useEffect(() => {
+    if (screen === 'game' && name) sound.startBgm();
+    else sound.stopBgm();
+  }, [screen, name]);
+
+  const handleFeed = () => {
+    feed();
+    sound.playSE('feed');
+  };
+  const handleSleep = () => {
+    sleep();
+    sound.playSE('sleep');
+  };
 
   const cooldownRemain =
     lastWokeAt === null
@@ -85,7 +102,7 @@ export default function App() {
         className={`flex gap-3 px-4 pt-2 pb-16 shrink-0 transition-opacity duration-200 ${mode === 'care' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
       >
         <button
-          onClick={feed}
+          onClick={handleFeed}
           disabled={food <= 0 || isSleeping}
           className="flex-1 py-4 text-white border-2 border-white bg-black active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
         >
@@ -93,7 +110,7 @@ export default function App() {
           <span className="text-sm tabular-nums">残数：{food}</span>
         </button>
         <button
-          onClick={sleep}
+          onClick={handleSleep}
           disabled={!canSleep}
           className="flex-1 py-4 text-white border-2 border-white bg-black active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
         >
