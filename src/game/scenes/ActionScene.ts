@@ -46,7 +46,7 @@ const FOOD_MAX_HEIGHT_ABOVE_GROUND = 130;
 const DEBUG = false;
 
 interface GroundSegment {
-    rect: Phaser.GameObjects.Rectangle; // 物理静的ボディ付き
+    rect: Phaser.GameObjects.TileSprite; // 地面タイル（物理ボディ付き）
     width: number;
 }
 
@@ -63,11 +63,12 @@ export class ActionScene extends Phaser.Scene {
     private baseX = 0;
     private segments: GroundSegment[] = [];
     private segmentGroup!: Phaser.Physics.Arcade.Group;
-    private foods: Phaser.GameObjects.Rectangle[] = [];
+    private foods: Phaser.GameObjects.Image[] = [];
     private foodGroup!: Phaser.Physics.Arcade.Group;
     private nextFoodSpawnAt = 0;
     private pointerDownAt: number | null = null;
     private debugGfx?: Phaser.GameObjects.Graphics;
+    private hills?: Phaser.GameObjects.TileSprite; // 遠景（パララックス）
 
     constructor() {
         super({
@@ -81,14 +82,25 @@ export class ActionScene extends Phaser.Scene {
 
     preload() {
         this.load.image("creature", "assets/creature_1_baby_stop.png");
+        this.load.image("ground", "assets/ground_tile.png");
+        this.load.image("food_apple", "assets/food_apple.png");
+        this.load.image("hill", "assets/hill_tile.png");
     }
 
     create() {
-        this.cameras.main.setBackgroundColor("#101820");
+        // 夕暮れの空。遠景の丘 → 地面タイル → キャラの順で奥行きを作る。
+        this.cameras.main.setBackgroundColor("#243b55");
         this.pointerDownAt = null;
         this.segments = [];
         this.foods = [];
         this.nextFoodSpawnAt = 0;
+
+        // 遠景の丘（横タイル・パララックス）。深度を下げて地面の奥に。
+        this.hills = this.add
+            .tileSprite(0, 0, this.scale.width, 24 * 3, "hill")
+            .setOrigin(0, 1)
+            .setTileScale(3, 3)
+            .setDepth(-5);
 
         // 重力をワールドに設定
         this.physics.world.gravity.y = GRAVITY_Y;
@@ -191,7 +203,7 @@ export class ActionScene extends Phaser.Scene {
     // セグメントを 1 つ生成して segmentGroup に追加。
     private spawnSegment(x: number, width: number, segHeight: number) {
         const rect = this.add
-            .rectangle(x, this.groundY, width, segHeight, 0xffffff, 0.45)
+            .tileSprite(x, this.groundY, width, segHeight, "ground")
             .setOrigin(0, 0);
         this.segmentGroup.add(rect);
         const body = rect.body as Phaser.Physics.Arcade.Body;
@@ -264,8 +276,9 @@ export class ActionScene extends Phaser.Scene {
         const x = this.scale.width + 20;
         const y = this.groundY - heightAbove - FOOD_SIZE;
         const f = this.add
-            .rectangle(x, y, FOOD_SIZE, FOOD_SIZE, 0xffffff, 1)
-            .setOrigin(0, 0);
+            .image(x, y, "food_apple")
+            .setOrigin(0, 0)
+            .setDisplaySize(FOOD_SIZE, FOOD_SIZE);
         this.foodGroup.add(f);
         const body = f.body as Phaser.Physics.Arcade.Body;
         body.setSize(FOOD_SIZE, FOOD_SIZE);
@@ -292,6 +305,9 @@ export class ActionScene extends Phaser.Scene {
         const h = this.scale.height;
         this.groundY = h * GROUND_RATIO;
         this.baseX = w * 0.25;
+
+        // 遠景の丘を画面幅に合わせ、地面ラインに底辺を合わせる。
+        this.hills?.setSize(w, 24 * 3).setPosition(0, this.groundY);
 
         const segHeight = this.segmentHeight();
         for (const s of this.segments) {
@@ -323,6 +339,9 @@ export class ActionScene extends Phaser.Scene {
         // セグメントとごはんに体重に応じた前進速度を毎フレーム適用（Phaser 物理が動かす）
         this.applySegmentVelocity();
         this.recycleSegments();
+
+        // 遠景の丘はゆっくり流す（パララックス）
+        if (this.hills) this.hills.tilePositionX += (SCROLL_SPEED * 0.2 * delta) / 1000;
 
         // ごはんのスポーン
         if (this.time.now >= this.nextFoodSpawnAt) {

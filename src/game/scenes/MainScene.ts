@@ -34,6 +34,7 @@ function rand(min: number, max: number) {
 export class MainScene extends Phaser.Scene {
   private creature!: Phaser.GameObjects.Image;
   private speechText!: Phaser.GameObjects.Text;
+  private floor!: Phaser.GameObjects.TileSprite; // 床（生物の足元から下）
 
   private dotPhase = 0;
   private dotTimer = 0;
@@ -45,13 +46,21 @@ export class MainScene extends Phaser.Scene {
 
   preload() {
     this.load.image(creatureKey(1, 'baby', 'stop'), 'assets/creature_1_baby_stop.png');
+    this.load.image('floor', 'assets/floor_tile.png');
   }
 
   create() {
-    this.cameras.main.setBackgroundColor('#000000');
+    // 壁色 + 生物の足元から下にタイル床。奥行きのある部屋風の背景。
+    this.cameras.main.setBackgroundColor('#1a2230');
 
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
+
+    // 床（足元 cy から画面下端まで）。深度を下げて生物の奥に。
+    this.floor = this.add
+      .tileSprite(0, cy, this.scale.width, this.scale.height - cy, 'floor')
+      .setOrigin(0, 0)
+      .setDepth(-10);
 
     // 原点を最下中央に。scale を変えても最下点は動かない
     this.creature = this.add
@@ -70,6 +79,8 @@ export class MainScene extends Phaser.Scene {
   update(_time: number, delta: number) {
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
+    // 床を画面サイズ・足元位置に追従（キャンバスリサイズ対応）
+    this.floor.setPosition(0, cy).setSize(this.scale.width, this.scale.height - cy);
     const { weight, isPaused } = useGameStore.getState();
     if (isPaused) return; // 一時停止中はアニメも進めない
     const baseScale = weight * SCALE_PER_KG;
