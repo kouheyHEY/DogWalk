@@ -4,6 +4,7 @@ import { useGameStore } from "../../store/gameStore";
 const SCALE_PER_KG = 0.1; // MainScene と同じ基準
 
 // 物理は Arcade に統一。単位は px/s 系。
+// ルールはシンプル: 足場の上を走り、ギャップはジャンプで跳び越す。穴に落ちたら育成画面へ戻る。
 const GRAVITY_Y = 4000; // 重力加速度 (px/s²)
 const SCROLL_SPEED = 250; // 前進スクロール速度 (px/s)
 const JUMP_MIN = 900; // 最小ジャンプ初速 (px/s)
@@ -41,7 +42,7 @@ const FOOD_MIN_HEIGHT_ABOVE_GROUND = 8;
 const FOOD_MAX_HEIGHT_ABOVE_GROUND = 130;
 
 // デバッグ描画
-const DEBUG = true;
+const DEBUG = false;
 
 interface GroundSegment {
     rect: Phaser.GameObjects.Rectangle; // 物理静的ボディ付き
@@ -56,7 +57,6 @@ function rand(min: number, max: number) {
 // キャラは物理ボディ（gravity + 衝突）、地面とごはんは静的ボディ（手動でスクロール）。
 export class ActionScene extends Phaser.Scene {
     private creature!: Phaser.Physics.Arcade.Image;
-    private label!: Phaser.GameObjects.Text;
     private groundY = 0;
     private baseScale = 0.5;
     private baseX = 0;
@@ -131,14 +131,6 @@ export class ActionScene extends Phaser.Scene {
             useGameStore.getState().gainFood();
         });
 
-        this.label = this.add
-            .text(0, 0, "ACTION (WIP)", {
-                fontFamily: '"Press Start 2P", monospace',
-                fontSize: "16px",
-                color: "#ffffff",
-            })
-            .setOrigin(0.5, 0.5);
-
         if (DEBUG) {
             this.debugGfx = this.add.graphics().setDepth(1000);
         }
@@ -189,6 +181,11 @@ export class ActionScene extends Phaser.Scene {
         (this.creature.body as Phaser.Physics.Arcade.Body).setVelocityY(-v);
     }
 
+    // 足場の高さ（地面ラインから画面下端まで）。
+    private segmentHeight(): number {
+        return this.scale.height - this.groundY;
+    }
+
     // セグメントを 1 つ生成して segmentGroup に追加。
     private spawnSegment(x: number, width: number, segHeight: number) {
         const rect = this.add
@@ -206,7 +203,7 @@ export class ActionScene extends Phaser.Scene {
 
     private fillSegmentsRight() {
         const w = this.scale.width;
-        const segHeight = this.scale.height - this.groundY;
+        const segHeight = this.segmentHeight();
         let nextX = 0;
         if (this.segments.length > 0) {
             const last = this.segments[this.segments.length - 1];
@@ -236,7 +233,7 @@ export class ActionScene extends Phaser.Scene {
 
     // 画面外（左）に出たセグメントを右端にリサイクル。新サイズ＆ギャップで再配置。
     private recycleSegments() {
-        const segHeight = this.scale.height - this.groundY;
+        const segHeight = this.segmentHeight();
         while (
             this.segments.length > 0 &&
             this.segments[0].rect.x + this.segments[0].width < 0
@@ -294,7 +291,7 @@ export class ActionScene extends Phaser.Scene {
         this.groundY = h * GROUND_RATIO;
         this.baseX = w * 0.25;
 
-        const segHeight = h - this.groundY;
+        const segHeight = this.segmentHeight();
         for (const s of this.segments) {
             const body = s.rect.body as Phaser.Physics.Arcade.Body;
             const vx = body.velocity.x;
@@ -311,8 +308,6 @@ export class ActionScene extends Phaser.Scene {
         if (this.creature.x === 0 && this.creature.y === 0) {
             body.reset(this.baseX, this.groundY);
         }
-
-        this.label.setPosition(w / 2, h * 0.35);
     }
 
     update(_time: number, delta: number) {
