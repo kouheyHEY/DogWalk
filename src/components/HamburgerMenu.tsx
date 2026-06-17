@@ -5,6 +5,7 @@ import {
   canReincarnate,
   REINCARNATION_WEIGHT_THRESHOLD,
 } from '../reincarnation';
+import { sound } from '../audio/sound';
 
 export function HamburgerMenu() {
   const goToTitle = useGameStore((s) => s.goToTitle);
@@ -15,6 +16,9 @@ export function HamburgerMenu() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [achievementsOpen, setAchievementsOpen] = useState(false);
   const [reincarnateOpen, setReincarnateOpen] = useState(false);
+  const [muted, setMuted] = useState(sound.muted);
+
+  const toggleMute = () => setMuted(sound.toggleMuted());
 
   const reincarnatable = canReincarnate(weight);
 
@@ -90,6 +94,13 @@ export function HamburgerMenu() {
                   体重{REINCARNATION_WEIGHT_THRESHOLD}kgで可能
                 </span>
               )}
+            </button>
+            <button
+              data-testid="menu-mute"
+              onClick={toggleMute}
+              className="py-3 text-lg border-2 border-white bg-black text-white active:bg-white active:text-black"
+            >
+              サウンド：{muted ? 'OFF' : 'ON'}
             </button>
             <button
               data-testid="menu-to-title"

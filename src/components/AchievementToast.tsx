@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { ACHIEVEMENTS } from '../achievements';
 import { useGameStore } from '../store/gameStore';
+import { sound } from '../audio/sound';
 
 const TOAST_DURATION_MS = 3000;
 
@@ -10,6 +11,7 @@ export function AchievementToast() {
 
   useEffect(() => {
     if (!currentId) return;
+    sound.playSE('achievement');
     const id = setTimeout(() => consumeUnlock(), TOAST_DURATION_MS);
     return () => clearTimeout(id);
   }, [currentId, consumeUnlock]);

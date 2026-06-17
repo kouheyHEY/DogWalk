@@ -2,8 +2,8 @@ import Phaser from 'phaser';
 import { stageOf, stageNoOf, useGameStore, type Stage } from '../../store/gameStore';
 
 // 生物スプライトのキー命名規則: creature_<stageNo>_<form>_<motion>
-// 現状は baby のみ素材あり。child/adult の素材が追加されたら preload に追記し、
-// update() の setTexture が自動で切替えるようになる。
+// 主人公の絵は baby のみ。成長は体重に応じたスケール拡大で表現する（別ステージ絵は持たない）。
+// 将来ステージ絵を足す場合は同じ命名で preload に追記すれば update() が自動で切替える。
 const creatureKey = (stageNo: number, form: Stage, motion: string) =>
   `creature_${stageNo}_${form}_${motion}`;
 
@@ -34,6 +34,7 @@ function rand(min: number, max: number) {
 export class MainScene extends Phaser.Scene {
   private creature!: Phaser.GameObjects.Image;
   private speechText!: Phaser.GameObjects.Text;
+  private floor!: Phaser.GameObjects.TileSprite; // 床（生物の足元から下）
 
   private dotPhase = 0;
   private dotTimer = 0;
@@ -45,16 +46,21 @@ export class MainScene extends Phaser.Scene {
 
   preload() {
     this.load.image(creatureKey(1, 'baby', 'stop'), 'assets/creature_1_baby_stop.png');
-    // TODO: 素材追加時にロード行を増やす
-    // this.load.image(creatureKey(2, 'child', 'stop'), 'assets/creature_2_child_stop.png');
-    // this.load.image(creatureKey(3, 'adult', 'stop'), 'assets/creature_3_adult_stop.png');
+    this.load.image('floor', 'assets/floor_tile.png');
   }
 
   create() {
-    this.cameras.main.setBackgroundColor('#000000');
+    // 壁色 + 生物の足元から下にタイル床。奥行きのある部屋風の背景。
+    this.cameras.main.setBackgroundColor('#1a2230');
 
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
+
+    // 床（足元 cy から画面下端まで）。深度を下げて生物の奥に。
+    this.floor = this.add
+      .tileSprite(0, cy, this.scale.width, this.scale.height - cy, 'floor')
+      .setOrigin(0, 0)
+      .setDepth(-10);
 
     // 原点を最下中央に。scale を変えても最下点は動かない
     this.creature = this.add
@@ -73,6 +79,8 @@ export class MainScene extends Phaser.Scene {
   update(_time: number, delta: number) {
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
+    // 床を画面サイズ・足元位置に追従（キャンバスリサイズ対応）
+    this.floor.setPosition(0, cy).setSize(this.scale.width, this.scale.height - cy);
     const { weight, isPaused } = useGameStore.getState();
     if (isPaused) return; // 一時停止中はアニメも進めない
     const baseScale = weight * SCALE_PER_KG;
