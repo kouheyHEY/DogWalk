@@ -26,12 +26,12 @@ export default function App() {
     return () => clearInterval(id);
   }, [screen, name, isPaused, tick]);
 
-  // BGM: ゲーム画面（名前入力済み）で再生、タイトルに戻ったら停止。
+  // BGM: ゲーム画面（名前入力済み）で再生。育成/アクションで曲を切替、タイトルで停止。
   // 実際の発音はユーザー操作で AudioContext がアンロックされてから始まる。
   useEffect(() => {
-    if (screen === 'game' && name) sound.startBgm();
+    if (screen === 'game' && name) sound.startBgm(mode === 'action' ? 'action' : 'care');
     else sound.stopBgm();
-  }, [screen, name]);
+  }, [screen, name, mode]);
 
   const handleFeed = () => {
     feed();
