@@ -1,12 +1,22 @@
 import { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { AchievementsDialog } from './AchievementsDialog';
+import {
+  canReincarnate,
+  REINCARNATION_WEIGHT_THRESHOLD,
+} from '../reincarnation';
 
 export function HamburgerMenu() {
   const goToTitle = useGameStore((s) => s.goToTitle);
   const setPaused = useGameStore((s) => s.setPaused);
+  const weight = useGameStore((s) => s.weight);
+  const reincarnationCount = useGameStore((s) => s.reincarnationCount);
+  const reincarnate = useGameStore((s) => s.reincarnate);
   const [menuOpen, setMenuOpen] = useState(false);
   const [achievementsOpen, setAchievementsOpen] = useState(false);
+  const [reincarnateOpen, setReincarnateOpen] = useState(false);
+
+  const reincarnatable = canReincarnate(weight);
 
   const openMenu = () => {
     setMenuOpen(true);
@@ -23,6 +33,19 @@ export function HamburgerMenu() {
   };
   const closeAchievements = () => {
     setAchievementsOpen(false);
+    setPaused(false);
+  };
+  const openReincarnate = () => {
+    setMenuOpen(false);
+    setReincarnateOpen(true);
+  };
+  const cancelReincarnate = () => {
+    setReincarnateOpen(false);
+    setPaused(false);
+  };
+  const confirmReincarnate = () => {
+    reincarnate();
+    setReincarnateOpen(false);
     setPaused(false);
   };
 
@@ -56,6 +79,19 @@ export function HamburgerMenu() {
               実績
             </button>
             <button
+              data-testid="menu-reincarnate"
+              onClick={openReincarnate}
+              disabled={!reincarnatable}
+              className="py-3 text-lg border-2 border-white bg-black text-white active:bg-white active:text-black disabled:opacity-30 disabled:active:bg-black disabled:active:text-white flex flex-col items-center leading-tight"
+            >
+              <span>てんせい</span>
+              {!reincarnatable && (
+                <span className="text-xs opacity-80">
+                  体重{REINCARNATION_WEIGHT_THRESHOLD}kgで可能
+                </span>
+              )}
+            </button>
+            <button
               data-testid="menu-to-title"
               onClick={() => {
                 closeMenu();
@@ -77,6 +113,42 @@ export function HamburgerMenu() {
       )}
 
       {achievementsOpen && <AchievementsDialog onClose={closeAchievements} />}
+
+      {reincarnateOpen && (
+        <div
+          data-testid="reincarnate-dialog"
+          className="absolute inset-0 z-30 flex items-center justify-center bg-black/80"
+          onClick={cancelReincarnate}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-black border-2 border-white p-6 flex flex-col gap-3 w-72"
+          >
+            <div className="text-lg text-center">てんせいする？</div>
+            <p className="text-sm leading-relaxed opacity-90">
+              いまの体重・日数はリセットされます。なまえ・実績・累計は
+              引き継ぎ、つぎは初期ごはんが増えます。
+            </p>
+            <div className="text-xs opacity-70 text-center">
+              これまでの転生回数: {reincarnationCount}
+            </div>
+            <button
+              data-testid="reincarnate-confirm"
+              onClick={confirmReincarnate}
+              className="py-3 text-lg border-2 border-white bg-black text-white active:bg-white active:text-black"
+            >
+              てんせいする
+            </button>
+            <button
+              data-testid="reincarnate-cancel"
+              onClick={cancelReincarnate}
+              className="py-2 text-sm border border-white/50 bg-black text-white/80 active:bg-white/20"
+            >
+              やめる
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

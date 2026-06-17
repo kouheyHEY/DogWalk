@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { findNewlyUnlocked } from '../achievements';
+import { canReincarnate, reincarnatedFields } from '../reincarnation';
 
 export type Screen = 'title' | 'game';
 export type GameMode = 'care' | 'action'; // 育成画面 / 横スクロールアクション
@@ -20,6 +21,7 @@ interface GameStore {
   totalSleepCount: number;     // 睡眠を取った累計回数
   achievements: Record<string, boolean>; // 実績id → 解除済みフラグ
   recentUnlocks: string[];     // 直近で解除された実績id（トースト通知などのキュー）
+  reincarnationCount: number;  // 転生した回数（引き継ぎ累計）
   startGame: () => void;
   resetGame: () => void;
   goToTitle: () => void;
@@ -31,6 +33,7 @@ interface GameStore {
   feed: () => void;
   sleep: () => void;
   gainFood: (amount?: number) => void; // アクションモードのごはん取得などで残数を増やす
+  reincarnate: () => void; // 転生（条件を満たすとき初期化＋ボーナス、累計は引き継ぎ）
   consumeUnlock: () => string | null; // recentUnlocks の先頭を取り出して返す（UI用）
 }
 
@@ -45,6 +48,7 @@ const INITIAL_STATE = {
   totalSleepCount: 0,
   achievements: {} as Record<string, boolean>,
   recentUnlocks: [] as string[],
+  reincarnationCount: 0,
 };
 
 export const NAME_PATTERN = /^[ぁ-ゖァ-ヶー]{1,4}$/; // ひらがな/カタカナ 1〜4文字（長音符含む）
@@ -91,6 +95,19 @@ export const useGameStore = create<GameStore>()(
   exitAction: () => set({ mode: 'care' }),
   setPaused: (paused) => set({ isPaused: paused }),
   gainFood: (amount = 1) => set((s) => ({ food: s.food + amount })),
+  reincarnate: () =>
+    set((s) => {
+      // 育成モードで、睡眠中でなく、体重がしきい値以上のときのみ発動
+      if (s.mode !== 'care' || s.isSleeping || !canReincarnate(s.weight)) {
+        return s;
+      }
+      // name / achievements / 累計カウントは引き継ぎ（明示的に触らない）
+      return {
+        ...reincarnatedFields(s.reincarnationCount),
+        gameMinutes: INITIAL_GAME_MINUTES,
+        isPaused: false,
+      };
+    }),
   resetGame: () =>
     set({
       ...INITIAL_STATE,
@@ -193,6 +210,7 @@ export const useGameStore = create<GameStore>()(
         totalFeedCount: s.totalFeedCount,
         totalSleepCount: s.totalSleepCount,
         achievements: s.achievements,
+        reincarnationCount: s.reincarnationCount,
       }),
     },
   ),
