@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { noteToFreq, sequenceDuration, SE, BGM, type Tone } from './sound';
+import { noteToFreq, sequenceDuration, SE, BGM, BGM_ACTION, type Tone } from './sound';
 
 describe('noteToFreq', () => {
   it('A4 = 440Hz', () => {
@@ -45,12 +45,14 @@ describe('音色データの妥当性', () => {
     }
   });
 
-  it('BGM は非空で全ノートが有効・正の長さ', () => {
-    expect(BGM.length).toBeGreaterThan(0);
-    for (const tone of BGM) {
-      if (tone.note) expect(() => noteToFreq(tone.note as string)).not.toThrow();
-      expect(tone.dur).toBeGreaterThan(0);
+  it('BGM(育成/アクション) は非空で全ノートが有効・正の長さ', () => {
+    for (const track of [BGM, BGM_ACTION]) {
+      expect(track.length).toBeGreaterThan(0);
+      for (const tone of track) {
+        if (tone.note) expect(() => noteToFreq(tone.note as string)).not.toThrow();
+        expect(tone.dur).toBeGreaterThan(0);
+      }
+      expect(sequenceDuration(track)).toBeGreaterThan(0);
     }
-    expect(sequenceDuration(BGM)).toBeGreaterThan(0);
   });
 });

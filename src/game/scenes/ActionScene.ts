@@ -36,17 +36,28 @@ const COLLISION_WIDTH_RATIO = 0.5;
 const COLLISION_HEIGHT_RATIO = 0.3;
 
 // ごはん
-const FOOD_SIZE = 14;
+const FOOD_SIZE = 24;
 const FOOD_MIN_INTERVAL_MS = 1500;
 const FOOD_MAX_INTERVAL_MS = 3500;
 const FOOD_MIN_HEIGHT_ABOVE_GROUND = 8;
 const FOOD_MAX_HEIGHT_ABOVE_GROUND = 130;
 
+// 地面: 表面（草）と本体（土）でスプライトを分ける。表面はこの高さの帯で上に重ねる。
+const GRASS_H = 20;
+
+// アクション背景テーマ（入場ごとにランダム選択）: 空色 + 遠景の丘 + 星の有無
+const BG_THEMES = [
+    { sky: "#9ad0ee", hill: "hill_day", stars: false },
+    { sky: "#f2b07a", hill: "hill_dusk", stars: false },
+    { sky: "#141d33", hill: "hill_night", stars: true },
+] as const;
+
 // デバッグ描画
 const DEBUG = false;
 
 interface GroundSegment {
-    rect: Phaser.GameObjects.TileSprite; // 地面タイル（物理ボディ付き）
+    rect: Phaser.GameObjects.TileSprite; // 土（本体・物理ボディ付き）
+    grass: Phaser.GameObjects.TileSprite; // 草（表面・装飾／速度で同期スクロール）
     width: number;
 }
 
@@ -63,12 +74,14 @@ export class ActionScene extends Phaser.Scene {
     private baseX = 0;
     private segments: GroundSegment[] = [];
     private segmentGroup!: Phaser.Physics.Arcade.Group;
+    private grassGroup!: Phaser.Physics.Arcade.Group; // 草表面（衝突なし・速度で動かすだけ）
     private foods: Phaser.GameObjects.Image[] = [];
     private foodGroup!: Phaser.Physics.Arcade.Group;
     private nextFoodSpawnAt = 0;
     private pointerDownAt: number | null = null;
     private debugGfx?: Phaser.GameObjects.Graphics;
     private hills?: Phaser.GameObjects.TileSprite; // 遠景（パララックス）
+    private stars?: Phaser.GameObjects.TileSprite; // 夜テーマの星
 
     constructor() {
         super({
@@ -82,22 +95,37 @@ export class ActionScene extends Phaser.Scene {
 
     preload() {
         this.load.image("creature", "assets/creature_1_baby_stop.png");
-        this.load.image("ground", "assets/ground_tile.png");
+        this.load.image("ground_body", "assets/ground_body.png");
+        this.load.image("ground_surface", "assets/ground_surface.png");
         this.load.image("food_apple", "assets/food_apple.png");
-        this.load.image("hill", "assets/hill_tile.png");
+        this.load.image("hill_day", "assets/hill_day.png");
+        this.load.image("hill_dusk", "assets/hill_dusk.png");
+        this.load.image("hill_night", "assets/hill_night.png");
+        this.load.image("stars", "assets/stars.png");
     }
 
     create() {
-        // 夕暮れの空。遠景の丘 → 地面タイル → キャラの順で奥行きを作る。
-        this.cameras.main.setBackgroundColor("#243b55");
+        // 背景テーマを入場ごとにランダム選択（空 → 星 → 遠景の丘 → 地面 → キャラ の奥行き）
+        const theme = BG_THEMES[Math.floor(Math.random() * BG_THEMES.length)];
+        this.cameras.main.setBackgroundColor(theme.sky);
         this.pointerDownAt = null;
         this.segments = [];
         this.foods = [];
         this.nextFoodSpawnAt = 0;
+        this.stars = undefined;
+
+        // 星（夜テーマのみ・最奥）
+        if (theme.stars) {
+            this.stars = this.add
+                .tileSprite(0, 0, this.scale.width, this.scale.height, "stars")
+                .setOrigin(0, 0)
+                .setTileScale(2, 2)
+                .setDepth(-6);
+        }
 
         // 遠景の丘（横タイル・パララックス）。深度を下げて地面の奥に。
         this.hills = this.add
-            .tileSprite(0, 0, this.scale.width, 24 * 3, "hill")
+            .tileSprite(0, 0, this.scale.width, 24 * 3, theme.hill)
             .setOrigin(0, 1)
             .setTileScale(3, 3)
             .setDepth(-5);
@@ -128,6 +156,11 @@ export class ActionScene extends Phaser.Scene {
         // 動的不動 (immovable + allowGravity=false) にして velocity で動かす。
         // 静的だと手動位置変更時に side collision の押し戻しがうまく走らない。
         this.segmentGroup = this.physics.add.group({
+            allowGravity: false,
+            immovable: true,
+        });
+        // 草表面は衝突に関与せず、土と同じ速度でスクロールさせるためだけのグループ。
+        this.grassGroup = this.physics.add.group({
             allowGravity: false,
             immovable: true,
         });
@@ -200,19 +233,33 @@ export class ActionScene extends Phaser.Scene {
         return this.scale.height - this.groundY;
     }
 
-    // セグメントを 1 つ生成して segmentGroup に追加。
+    // セグメントを 1 つ生成。土（本体・物理ボディ）と草（表面・装飾）をペアで作る。
     private spawnSegment(x: number, width: number, segHeight: number) {
+        // 土本体（地面ラインから下・コライダー対象）
         const rect = this.add
-            .tileSprite(x, this.groundY, width, segHeight, "ground")
-            .setOrigin(0, 0);
+            .tileSprite(x, this.groundY, width, segHeight, "ground_body")
+            .setOrigin(0, 0)
+            .setDepth(-2);
         this.segmentGroup.add(rect);
         const body = rect.body as Phaser.Physics.Arcade.Body;
         body.setSize(width, segHeight);
         body.setAllowGravity(false);
         body.setImmovable(true);
-        // velocity は毎フレーム update() で再設定するのでここでは仮値
-        body.setVelocityX(0);
-        return rect;
+        body.setVelocityX(0); // velocity は毎フレーム update() で再設定
+
+        // 草表面（上端に重ねる帯・キャラより奥）
+        const grass = this.add
+            .tileSprite(x, this.groundY, width, GRASS_H, "ground_surface")
+            .setOrigin(0, 0)
+            .setDepth(-1);
+        this.grassGroup.add(grass);
+        const gbody = grass.body as Phaser.Physics.Arcade.Body;
+        gbody.setSize(width, GRASS_H);
+        gbody.setAllowGravity(false);
+        gbody.setImmovable(true);
+        gbody.setVelocityX(0);
+
+        return { rect, grass };
     }
 
     private fillSegmentsRight() {
@@ -226,8 +273,8 @@ export class ActionScene extends Phaser.Scene {
         }
         while (nextX < w + SEG_MAX_WIDTH) {
             const width = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
-            const rect = this.spawnSegment(nextX, width, segHeight);
-            this.segments.push({ rect, width });
+            const { rect, grass } = this.spawnSegment(nextX, width, segHeight);
+            this.segments.push({ rect, grass, width });
             nextX += width + rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
         }
     }
@@ -238,6 +285,8 @@ export class ActionScene extends Phaser.Scene {
             -SCROLL_SPEED * this.weightFactor(SPEED_PER_KG, SPEED_FACTOR_MIN);
         for (const s of this.segments) {
             (s.rect.body as Phaser.Physics.Arcade.Body).setVelocityX(vx);
+            // 草表面も同じ速度で（同一物理ステップで動くので土とズレない）
+            (s.grass.body as Phaser.Physics.Arcade.Body).setVelocityX(vx);
         }
         for (const f of this.foods) {
             if (!f.active) continue;
@@ -258,12 +307,17 @@ export class ActionScene extends Phaser.Scene {
                 (last ? last.rect.x + last.width : 0) +
                 rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
             const newWidth = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
-            s.rect.setSize(newWidth, segHeight);
             s.width = newWidth;
+            s.rect.setSize(newWidth, segHeight);
             const body = s.rect.body as Phaser.Physics.Arcade.Body;
             body.setSize(newWidth, segHeight);
             // body.reset は body と GameObject を (x, y) に移動し、velocity を 0 にする
             body.reset(newX, this.groundY);
+            // 草表面も同じ幅・位置へ
+            s.grass.setSize(newWidth, GRASS_H);
+            const gbody = s.grass.body as Phaser.Physics.Arcade.Body;
+            gbody.setSize(newWidth, GRASS_H);
+            gbody.reset(newX, this.groundY);
             this.segments.push(s);
         }
     }
@@ -306,17 +360,25 @@ export class ActionScene extends Phaser.Scene {
         this.groundY = h * GROUND_RATIO;
         this.baseX = w * 0.25;
 
-        // 遠景の丘を画面幅に合わせ、地面ラインに底辺を合わせる。
+        // 星は全画面、丘は画面幅に合わせ地面ラインに底辺を合わせる。
+        this.stars?.setSize(w, h);
         this.hills?.setSize(w, 24 * 3).setPosition(0, this.groundY);
 
         const segHeight = this.segmentHeight();
         for (const s of this.segments) {
             const body = s.rect.body as Phaser.Physics.Arcade.Body;
             const vx = body.velocity.x;
+            const x = s.rect.x;
             s.rect.setSize(s.width, segHeight);
             body.setSize(s.width, segHeight);
-            body.reset(s.rect.x, this.groundY);
+            body.reset(x, this.groundY);
             body.setVelocityX(vx);
+            // 草表面を土に追従
+            s.grass.setSize(s.width, GRASS_H);
+            const gbody = s.grass.body as Phaser.Physics.Arcade.Body;
+            gbody.setSize(s.width, GRASS_H);
+            gbody.reset(x, this.groundY);
+            gbody.setVelocityX(vx);
         }
 
         this.fillSegmentsRight();

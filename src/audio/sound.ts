@@ -44,13 +44,30 @@ const BEAT = 0.36; // 1拍の秒数（やさしめテンポ）
 const q = (note: string | null): Tone => ({ note, dur: BEAT });
 const h = (note: string | null): Tone => ({ note, dur: BEAT * 2 });
 
-// ループ BGM のメロディ（C メジャー・たまごっち風のやさしい循環）
+// 育成画面の BGM（C メジャー・たまごっち風のやさしい循環）
 export const BGM: Tone[] = [
   q('C5'), q('E5'), q('G5'), q('E5'),
   q('A4'), q('C5'), q('E5'), q('C5'),
   q('F4'), q('A4'), q('C5'), q('A4'),
   q('G4'), q('B4'), h('D5'),
 ];
+
+const ABEAT = 0.18; // アクションは速めテンポ
+const a = (note: string | null): Tone => ({ note, dur: ABEAT });
+
+// アクション画面の BGM（軽快な循環・少し元気め）
+export const BGM_ACTION: Tone[] = [
+  a('E5'), a('G5'), a('A5'), a('G5'), a('E5'), a('D5'), a('E5'), a(null),
+  a('C5'), a('E5'), a('G5'), a('E5'), a('A5'), a('G5'), a('E5'), a(null),
+  a('D5'), a('F5'), a('A5'), a('F5'), a('D5'), a('C5'), a('D5'), a(null),
+  a('G4'), a('B4'), a('D5'), a('B4'), a('E5'), a('D5'), a('C5'), a(null),
+];
+
+export type BgmTrack = 'care' | 'action';
+const BGM_TRACKS: Record<BgmTrack, { seq: Tone[]; type: OscillatorType; vol: number }> = {
+  care: { seq: BGM, type: 'triangle', vol: 0.16 },
+  action: { seq: BGM_ACTION, type: 'square', vol: 0.13 },
+};
 
 const MUTE_KEY = 'dogwalk-muted';
 
@@ -60,6 +77,7 @@ class SoundManager {
   private _muted = false;
   private bgmTimer: ReturnType<typeof setTimeout> | null = null;
   private bgmRunning = false;
+  private currentTrack: BgmTrack | null = null;
 
   constructor() {
     if (typeof localStorage !== 'undefined') {
@@ -127,16 +145,20 @@ class SoundManager {
     }
   }
 
-  startBgm(): void {
+  startBgm(track: BgmTrack = 'care'): void {
     this.unlock();
-    if (!this.ctx || this.bgmRunning) return;
+    if (!this.ctx) return;
+    if (this.bgmRunning && this.currentTrack === track) return; // 同じ曲は二重起動しない
+    this.stopBgm(); // 別の曲が鳴っていたら止めて切替
     this.bgmRunning = true;
-    const loopLen = sequenceDuration(BGM);
+    this.currentTrack = track;
+    const def = BGM_TRACKS[track];
+    const loopLen = sequenceDuration(def.seq);
     const schedule = () => {
       if (!this.bgmRunning || !this.ctx) return;
       let t = this.ctx.currentTime + 0.05;
-      for (const tone of BGM) {
-        if (tone.note) this.blip(noteToFreq(tone.note), t, tone.dur * 0.95, 'triangle', 0.16);
+      for (const tone of def.seq) {
+        if (tone.note) this.blip(noteToFreq(tone.note), t, tone.dur * 0.95, def.type, def.vol);
         t += tone.dur;
       }
       this.bgmTimer = setTimeout(schedule, loopLen * 1000);
@@ -146,6 +168,7 @@ class SoundManager {
 
   stopBgm(): void {
     this.bgmRunning = false;
+    this.currentTrack = null;
     if (this.bgmTimer !== null) {
       clearTimeout(this.bgmTimer);
       this.bgmTimer = null;
