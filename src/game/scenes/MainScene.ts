@@ -2,8 +2,8 @@ import Phaser from 'phaser';
 import { stageOf, stageNoOf, useGameStore, type Stage } from '../../store/gameStore';
 
 // 生物スプライトのキー命名規則: creature_<stageNo>_<form>_<motion>
-// baby/child/adult の stop 素材を用意済み。update() の setTexture が体重ステージに応じて
-// 自動で切替える。新モーション（walk 等）を足す場合も同じ命名で preload に追記する。
+// 主人公の絵は baby のみ。成長は体重に応じたスケール拡大で表現する（別ステージ絵は持たない）。
+// 将来ステージ絵を足す場合は同じ命名で preload に追記すれば update() が自動で切替える。
 const creatureKey = (stageNo: number, form: Stage, motion: string) =>
   `creature_${stageNo}_${form}_${motion}`;
 
@@ -45,8 +45,6 @@ export class MainScene extends Phaser.Scene {
 
   preload() {
     this.load.image(creatureKey(1, 'baby', 'stop'), 'assets/creature_1_baby_stop.png');
-    this.load.image(creatureKey(2, 'child', 'stop'), 'assets/creature_2_child_stop.png');
-    this.load.image(creatureKey(3, 'adult', 'stop'), 'assets/creature_3_adult_stop.png');
   }
 
   create() {

@@ -44,10 +44,12 @@
 ### ✅ B. リリース整備
 - `ActionScene.ts` の `DEBUG=false`、`"ACTION (WIP)"` ラベル除去。
 
-### ✅ C. スプライト素材（成長ステージの見た目）
-- `creature_2_child_stop.png` / `creature_3_adult_stop.png` を生成（白基調・透過・ピクセルアート）。
-- `MainScene.ts` の preload に追加。`update()` が `stageNoOf(weight)`（10/25kg しきい値）で自動切替。
-- `src/growth.test.ts` でステージ→キー対応をテスト。
+### ✅ C. スプライト素材 → 方針変更（主人公の絵は据え置き）
+- ユーザー指示「主人公の絵はそのままでよい」。**別ステージ絵は持たない**。
+- 成長は体重に応じたスケール拡大で表現（`weight * 0.1`）。
+- ステージ判定ロジック（`stageOf`/`stageNoOf`）と命名規則は将来用に維持（`src/growth.test.ts`）。
+  ステージ絵を足したくなったら同名で `MainScene` の preload に追記すれば自動切替する。
+- 絵を変える場合は主人公以外（背景・ごはん・アクション画面 等）が対象。
 
 ### ✅ D. BGM / SE
 - `src/audio/sound.ts`: WebAudio チップチューン音源（MIDI はブラウザ非対応のため自前合成）。
