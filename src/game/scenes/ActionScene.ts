@@ -45,11 +45,11 @@ const FOOD_MAX_HEIGHT_ABOVE_GROUND = 130;
 // 地面: 表面（草）と本体（土）でスプライトを分ける。表面はこの高さの帯で上に重ねる。
 const GRASS_H = 20;
 
-// アクション背景テーマ（入場ごとにランダム選択）: 空色 + 遠景の丘 + 星の有無
+// アクション背景テーマ（入場ごとにランダム選択）: 空色 + 星の有無
 const BG_THEMES = [
-    { sky: "#9ad0ee", hill: "hill_day", stars: false },
-    { sky: "#f2b07a", hill: "hill_dusk", stars: false },
-    { sky: "#141d33", hill: "hill_night", stars: true },
+    { sky: "#9ad0ee", stars: false }, // 昼
+    { sky: "#f2b07a", stars: false }, // 夕
+    { sky: "#141d33", stars: true }, // 夜
 ] as const;
 
 // デバッグ描画
@@ -80,7 +80,6 @@ export class ActionScene extends Phaser.Scene {
     private nextFoodSpawnAt = 0;
     private pointerDownAt: number | null = null;
     private debugGfx?: Phaser.GameObjects.Graphics;
-    private hills?: Phaser.GameObjects.TileSprite; // 遠景（パララックス）
     private stars?: Phaser.GameObjects.TileSprite; // 夜テーマの星
 
     constructor() {
@@ -98,14 +97,11 @@ export class ActionScene extends Phaser.Scene {
         this.load.image("ground_body", "assets/ground_body.png");
         this.load.image("ground_surface", "assets/ground_surface.png");
         this.load.image("food_apple", "assets/food_apple.png");
-        this.load.image("hill_day", "assets/hill_day.png");
-        this.load.image("hill_dusk", "assets/hill_dusk.png");
-        this.load.image("hill_night", "assets/hill_night.png");
         this.load.image("stars", "assets/stars.png");
     }
 
     create() {
-        // 背景テーマを入場ごとにランダム選択（空 → 星 → 遠景の丘 → 地面 → キャラ の奥行き）
+        // 背景テーマを入場ごとにランダム選択（空 → 星 → 地面 → キャラ の奥行き）
         const theme = BG_THEMES[Math.floor(Math.random() * BG_THEMES.length)];
         this.cameras.main.setBackgroundColor(theme.sky);
         this.pointerDownAt = null;
@@ -122,13 +118,6 @@ export class ActionScene extends Phaser.Scene {
                 .setTileScale(2, 2)
                 .setDepth(-6);
         }
-
-        // 遠景の丘（横タイル・パララックス）。深度を下げて地面の奥に。
-        this.hills = this.add
-            .tileSprite(0, 0, this.scale.width, 24 * 3, theme.hill)
-            .setOrigin(0, 1)
-            .setTileScale(3, 3)
-            .setDepth(-5);
 
         // 重力をワールドに設定
         this.physics.world.gravity.y = GRAVITY_Y;
@@ -360,9 +349,8 @@ export class ActionScene extends Phaser.Scene {
         this.groundY = h * GROUND_RATIO;
         this.baseX = w * 0.25;
 
-        // 星は全画面、丘は画面幅に合わせ地面ラインに底辺を合わせる。
+        // 星は全画面に追従。
         this.stars?.setSize(w, h);
-        this.hills?.setSize(w, 24 * 3).setPosition(0, this.groundY);
 
         const segHeight = this.segmentHeight();
         for (const s of this.segments) {
@@ -401,9 +389,6 @@ export class ActionScene extends Phaser.Scene {
         // セグメントとごはんに体重に応じた前進速度を毎フレーム適用（Phaser 物理が動かす）
         this.applySegmentVelocity();
         this.recycleSegments();
-
-        // 遠景の丘はゆっくり流す（パララックス）
-        if (this.hills) this.hills.tilePositionX += (SCROLL_SPEED * 0.2 * delta) / 1000;
 
         // ごはんのスポーン
         if (this.time.now >= this.nextFoodSpawnAt) {

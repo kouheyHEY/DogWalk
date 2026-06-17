@@ -78,6 +78,9 @@ class SoundManager {
   private bgmTimer: ReturnType<typeof setTimeout> | null = null;
   private bgmRunning = false;
   private currentTrack: BgmTrack | null = null;
+  // BGM 専用のゲイン。停止時にこのノードごと切ることで、先読みスケジュール済みの
+  // 音符も含めて即座に無音化する（曲の切替・停止が即反映される）。
+  private bgmGain: GainNode | null = null;
 
   constructor() {
     if (typeof localStorage !== 'undefined') {
@@ -118,7 +121,7 @@ class SoundManager {
     return this._muted;
   }
 
-  private blip(freq: number, start: number, dur: number, type: OscillatorType, vol: number): void {
+  private blip(freq: number, start: number, dur: number, type: OscillatorType, vol: number, target?: AudioNode): void {
     if (!this.ctx || !this.master) return;
     const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
@@ -129,7 +132,7 @@ class SoundManager {
     g.gain.linearRampToValueAtTime(vol, start + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
     o.connect(g);
-    g.connect(this.master);
+    g.connect(target ?? this.master);
     o.start(start);
     o.stop(start + dur + 0.02);
   }
@@ -149,16 +152,21 @@ class SoundManager {
     this.unlock();
     if (!this.ctx) return;
     if (this.bgmRunning && this.currentTrack === track) return; // 同じ曲は二重起動しない
-    this.stopBgm(); // 別の曲が鳴っていたら止めて切替
+    this.stopBgm(); // 別の曲が鳴っていたら（先読み分も含め）止めて切替
     this.bgmRunning = true;
     this.currentTrack = track;
+    // 新しい BGM 用ゲインを張る（master 直結）。停止時はこれを切る。
+    const bgmGain = this.ctx.createGain();
+    bgmGain.gain.value = 1;
+    bgmGain.connect(this.master!);
+    this.bgmGain = bgmGain;
     const def = BGM_TRACKS[track];
     const loopLen = sequenceDuration(def.seq);
     const schedule = () => {
       if (!this.bgmRunning || !this.ctx) return;
       let t = this.ctx.currentTime + 0.05;
       for (const tone of def.seq) {
-        if (tone.note) this.blip(noteToFreq(tone.note), t, tone.dur * 0.95, def.type, def.vol);
+        if (tone.note) this.blip(noteToFreq(tone.note), t, tone.dur * 0.95, def.type, def.vol, bgmGain);
         t += tone.dur;
       }
       this.bgmTimer = setTimeout(schedule, loopLen * 1000);
@@ -172,6 +180,26 @@ class SoundManager {
     if (this.bgmTimer !== null) {
       clearTimeout(this.bgmTimer);
       this.bgmTimer = null;
+    }
+    // BGM ゲインを短くフェードしてから切断 → 先読みスケジュール済みの音も即無音化。
+    const g = this.bgmGain;
+    this.bgmGain = null;
+    if (g && this.ctx) {
+      const now = this.ctx.currentTime;
+      try {
+        g.gain.cancelScheduledValues(now);
+        g.gain.setValueAtTime(g.gain.value, now);
+        g.gain.linearRampToValueAtTime(0, now + 0.04);
+      } catch {
+        /* 失敗時もこのあと切断する */
+      }
+      setTimeout(() => {
+        try {
+          g.disconnect();
+        } catch {
+          /* 既に切断済み */
+        }
+      }, 80);
     }
   }
 }
