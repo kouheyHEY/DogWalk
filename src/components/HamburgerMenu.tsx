@@ -5,6 +5,7 @@ import {
   canReincarnate,
   REINCARNATION_WEIGHT_THRESHOLD,
 } from '../reincarnation';
+import { titleFor } from '../titles';
 import { sound } from '../audio/sound';
 
 export function HamburgerMenu() {
@@ -74,7 +75,12 @@ export function HamburgerMenu() {
             onClick={(e) => e.stopPropagation()}
             className="bg-black border-2 border-white p-6 flex flex-col gap-3 w-64"
           >
-            <div className="text-lg text-center mb-2">メニュー（一時停止中）</div>
+            <div className="text-lg text-center mb-1">メニュー（一時停止中）</div>
+            {titleFor(reincarnationCount) && (
+              <div className="text-center text-xs text-yellow-300 mb-2">
+                称号: {titleFor(reincarnationCount)}
+              </div>
+            )}
             <button
               data-testid="menu-achievements"
               onClick={openAchievements}

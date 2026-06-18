@@ -42,6 +42,16 @@ const FOOD_MAX_INTERVAL_MS = 3500;
 const FOOD_MIN_HEIGHT_ABOVE_GROUND = 8;
 const FOOD_MAX_HEIGHT_ABOVE_GROUND = 130;
 
+// 宙のブロック（障害物・#C）。触れるとアクション終了（育成へ戻る）。
+const BLOCK_SIZE = 28;
+const BLOCK_MIN_INTERVAL_MS = 2500;
+const BLOCK_MAX_INTERVAL_MS = 5000;
+const BLOCK_CLEAR_MIN = 12; // キャラの頭上クリアランス（最小）
+const BLOCK_CLEAR_MAX = 80; // 〃（最大）。この範囲の高さに出現させる
+
+// 穴幅の体重スケール（#C）。大きくなっても落ちられるよう、体格に応じて穴を広げる。
+const GAP_SCALE_MAX = 4;
+
 // 地面: 表面（草）と本体（土）でスプライトを分ける。表面はこの高さの帯で上に重ねる。
 const GRASS_H = 20;
 
@@ -78,6 +88,10 @@ export class ActionScene extends Phaser.Scene {
     private foods: Phaser.GameObjects.Image[] = [];
     private foodGroup!: Phaser.Physics.Arcade.Group;
     private nextFoodSpawnAt = 0;
+    private blocks: Phaser.GameObjects.Rectangle[] = []; // 宙の障害物（#C）
+    private blockGroup!: Phaser.Physics.Arcade.Group;
+    private nextBlockSpawnAt = 0;
+    private gapScale = 1; // 穴幅の体重スケール（#C）
     private pointerDownAt: number | null = null;
     private debugGfx?: Phaser.GameObjects.Graphics;
     private stars?: Phaser.GameObjects.TileSprite; // 夜テーマの星
@@ -107,7 +121,9 @@ export class ActionScene extends Phaser.Scene {
         this.pointerDownAt = null;
         this.segments = [];
         this.foods = [];
+        this.blocks = [];
         this.nextFoodSpawnAt = 0;
+        this.nextBlockSpawnAt = 0;
         this.stars = undefined;
 
         // 星（夜テーマのみ・最奥）
@@ -124,6 +140,8 @@ export class ActionScene extends Phaser.Scene {
 
         const { weight } = useGameStore.getState();
         this.baseScale = weight * SCALE_PER_KG;
+        // 体格が大きいほど穴を広げる（落ちられるように）。体重5=等倍, 20=4倍で頭打ち。
+        this.gapScale = Phaser.Math.Clamp(this.baseScale / 0.5, 1, GAP_SCALE_MAX);
 
         // キャラ（物理ボディ付き）
         this.creature = this.physics.add
@@ -157,6 +175,10 @@ export class ActionScene extends Phaser.Scene {
             allowGravity: false,
             immovable: true,
         });
+        this.blockGroup = this.physics.add.group({
+            allowGravity: false,
+            immovable: true,
+        });
 
         // 衝突応答（着地・側面押し出しを物理に任せる）
         this.physics.add.collider(this.creature, this.segmentGroup);
@@ -166,6 +188,10 @@ export class ActionScene extends Phaser.Scene {
             useGameStore.getState().gainFood();
             sound.playSE("pickup");
         });
+        // 宙のブロックに触れたらアクション終了（穴落ちと同じく育成へ戻る）
+        this.physics.add.overlap(this.creature, this.blockGroup, () => {
+            useGameStore.getState().exitAction();
+        });
 
         if (DEBUG) {
             this.debugGfx = this.add.graphics().setDepth(1000);
@@ -174,6 +200,8 @@ export class ActionScene extends Phaser.Scene {
         this.layout();
         this.nextFoodSpawnAt =
             this.time.now + rand(FOOD_MIN_INTERVAL_MS, FOOD_MAX_INTERVAL_MS);
+        this.nextBlockSpawnAt =
+            this.time.now + rand(BLOCK_MIN_INTERVAL_MS, BLOCK_MAX_INTERVAL_MS);
         this.scale.on("resize", this.layout, this);
 
         // 入力
@@ -215,11 +243,17 @@ export class ActionScene extends Phaser.Scene {
         const base = JUMP_MIN + ratio * (JUMP_MAX - JUMP_MIN);
         const v = base * this.weightFactor(JUMP_PER_KG, JUMP_FACTOR_MIN);
         (this.creature.body as Phaser.Physics.Arcade.Body).setVelocityY(-v);
+        sound.playSE("jump"); // ジャンプ音（#F）
     }
 
     // 足場の高さ（地面ラインから画面下端まで）。
     private segmentHeight(): number {
         return this.scale.height - this.groundY;
+    }
+
+    // 体重スケールを反映した穴幅（#C）。
+    private gap(): number {
+        return rand(GAP_MIN_WIDTH * this.gapScale, GAP_MAX_WIDTH * this.gapScale);
     }
 
     // セグメントを 1 つ生成。土（本体・物理ボディ）と草（表面・装飾）をペアで作る。
@@ -258,13 +292,13 @@ export class ActionScene extends Phaser.Scene {
         if (this.segments.length > 0) {
             const last = this.segments[this.segments.length - 1];
             nextX =
-                last.rect.x + last.width + rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
+                last.rect.x + last.width + this.gap();
         }
         while (nextX < w + SEG_MAX_WIDTH) {
             const width = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
             const { rect, grass } = this.spawnSegment(nextX, width, segHeight);
             this.segments.push({ rect, grass, width });
-            nextX += width + rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
+            nextX += width + this.gap();
         }
     }
 
@@ -281,6 +315,10 @@ export class ActionScene extends Phaser.Scene {
             if (!f.active) continue;
             (f.body as Phaser.Physics.Arcade.Body | null)?.setVelocityX(vx);
         }
+        for (const b of this.blocks) {
+            if (!b.active) continue;
+            (b.body as Phaser.Physics.Arcade.Body | null)?.setVelocityX(vx);
+        }
     }
 
     // 画面外（左）に出たセグメントを右端にリサイクル。新サイズ＆ギャップで再配置。
@@ -294,7 +332,7 @@ export class ActionScene extends Phaser.Scene {
             const last = this.segments[this.segments.length - 1];
             const newX =
                 (last ? last.rect.x + last.width : 0) +
-                rand(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
+                this.gap();
             const newWidth = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
             s.width = newWidth;
             s.rect.setSize(newWidth, segHeight);
@@ -337,6 +375,39 @@ export class ActionScene extends Phaser.Scene {
             if (!f.active) return false;
             if (f.x + FOOD_SIZE < 0) {
                 f.destroy();
+                return false;
+            }
+            return true;
+        });
+    }
+
+    // 宙のブロック（障害物）を出現させる。キャラの頭上に少しのクリアランスで配置し、
+    // 地上では当たらず、ジャンプの当て損ないで触れると終了する。
+    private spawnBlock() {
+        const standH = this.creature.height * this.baseScale; // キャラの立ち高さ
+        const clear = rand(BLOCK_CLEAR_MIN, BLOCK_CLEAR_MAX);
+        const x = this.scale.width + 20;
+        const y = this.groundY - standH - clear - BLOCK_SIZE; // ブロック上端
+        const b = this.add
+            .rectangle(x, y, BLOCK_SIZE, BLOCK_SIZE, 0xd8453a, 1)
+            .setStrokeStyle(2, 0x3a1814)
+            .setOrigin(0, 0)
+            .setDepth(1);
+        this.blockGroup.add(b);
+        const body = b.body as Phaser.Physics.Arcade.Body;
+        body.setSize(BLOCK_SIZE, BLOCK_SIZE);
+        body.setAllowGravity(false);
+        body.setImmovable(true);
+        body.setVelocityX(0); // update() で再設定
+        this.blocks.push(b);
+    }
+
+    // 画面外（左）のブロックを除去。
+    private cullBlocks() {
+        this.blocks = this.blocks.filter((b) => {
+            if (!b.active) return false;
+            if (b.x + BLOCK_SIZE < 0) {
+                b.destroy();
                 return false;
             }
             return true;
@@ -398,6 +469,15 @@ export class ActionScene extends Phaser.Scene {
                 rand(FOOD_MIN_INTERVAL_MS, FOOD_MAX_INTERVAL_MS);
         }
         this.cullFoods();
+
+        // 宙ブロックのスポーン（#C）
+        if (this.time.now >= this.nextBlockSpawnAt) {
+            this.spawnBlock();
+            this.nextBlockSpawnAt =
+                this.time.now +
+                rand(BLOCK_MIN_INTERVAL_MS, BLOCK_MAX_INTERVAL_MS);
+        }
+        this.cullBlocks();
 
         // ゲームオーバー判定（画面下まで落ちきったら）
         if (this.creature.y > this.scale.height + FALL_EXIT_MARGIN) {

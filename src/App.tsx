@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { GameCanvas } from './components/GameCanvas';
 import { AchievementToast } from './components/AchievementToast';
+import { MilestoneOverlay } from './components/MilestoneOverlay';
 import { HamburgerMenu } from './components/HamburgerMenu';
 import { NameInputModal } from './components/NameInputModal';
 import { TitleScreen } from './components/TitleScreen';
-import { useGameStore, SLEEP_COOLDOWN_MIN } from './store/gameStore';
+import { useGameStore, SLEEP_COOLDOWN_MIN, HUNGER_MAX } from './store/gameStore';
+import { REINCARNATION_WEIGHT_THRESHOLD } from './reincarnation';
 import { sound } from './audio/sound';
 
 function formatClock(gameMinutes: number): string {
@@ -16,7 +18,7 @@ function formatClock(gameMinutes: number): string {
 
 export default function App() {
   const {
-    screen, mode, name, food, days, weight, isSleeping, isPaused, gameMinutes, lastWokeAt,
+    screen, mode, name, food, days, weight, hunger, isSleeping, isPaused, gameMinutes, lastWokeAt,
     feed, sleep, tick, enterAction, exitAction,
   } = useGameStore();
 
@@ -53,6 +55,16 @@ export default function App() {
       ? '睡眠可能'
       : `あと${cooldownRemain}分で\n睡眠可能`;
 
+  // 目的の可視化（#A）: 次の体重節目までの距離
+  const nextT = weight < 10 ? 10 : weight < REINCARNATION_WEIGHT_THRESHOLD ? REINCARNATION_WEIGHT_THRESHOLD : null;
+  const goalText =
+    nextT === null
+      ? 'てんせい できる！'
+      : `あと ${(nextT - weight).toFixed(1)}kg で ${nextT === REINCARNATION_WEIGHT_THRESHOLD ? 'てんせい' : 'せいちょう'}`;
+  // 空腹バー（#A/#B）: 満タンに近いほど危険色
+  const hungerPct = Math.min(100, (hunger / HUNGER_MAX) * 100);
+  const hungerColor = hunger < 50 ? '#5fa84e' : hunger < 80 ? '#e0b03a' : '#d8453a';
+
   return (
     <div
       className="relative flex flex-col w-screen h-screen overflow-hidden bg-black text-white"
@@ -60,20 +72,34 @@ export default function App() {
     >
       {/* 上部: バー領域は常に保持し、内容のみフェード（キャンバスサイズを変えないため） */}
       <div
-        className={`flex justify-between items-start px-4 pt-16 pb-2 shrink-0 transition-opacity duration-200 ${mode === 'care' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`flex flex-col gap-2 px-4 pt-16 pb-2 shrink-0 transition-opacity duration-200 ${mode === 'care' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
       >
-        <div className="text-2xl tabular-nums">
-          {formatClock(gameMinutes)} <span>{days}日目</span>
-        </div>
-        <div className="flex items-start gap-4">
-          <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-2 text-xl tabular-nums">
-            <span className="text-right">名前</span>
-            <span className="text-right">{name}</span>
-            <span className="text-right">体重</span>
-            <span className="text-right">{weight.toFixed(1)}kg</span>
+        <div className="flex justify-between items-start">
+          <div className="text-2xl tabular-nums">
+            {formatClock(gameMinutes)} <span>{days}日目</span>
           </div>
-          <HamburgerMenu />
+          <div className="flex items-start gap-4">
+            <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-2 text-xl tabular-nums">
+              <span className="text-right">名前</span>
+              <span className="text-right">{name}</span>
+              <span className="text-right">体重</span>
+              <span className="text-right">{weight.toFixed(1)}kg</span>
+            </div>
+            <HamburgerMenu />
+          </div>
         </div>
+        {/* 空腹バー（#B）＋ 目的（#A） */}
+        <div className="flex items-center gap-2 text-sm">
+          <span className="shrink-0">くうふく</span>
+          <div className="flex-1 h-3 border-2 border-white">
+            <div
+              data-testid="hunger-bar"
+              className="h-full transition-[width] duration-300"
+              style={{ width: `${hungerPct}%`, backgroundColor: hungerColor }}
+            />
+          </div>
+        </div>
+        <div className="text-sm tabular-nums text-right">{goalText}</div>
       </div>
 
       {/* 中央: Phaser キャンバス（モード問わず常駐、シーンで切替） */}
@@ -86,6 +112,9 @@ export default function App() {
 
       {/* 実績解除トースト（ゲーム画面のみ） */}
       {screen === 'game' && <AchievementToast />}
+
+      {/* 節目の祝い演出（#D）。ゲーム画面のみ */}
+      {screen === 'game' && <MilestoneOverlay />}
 
       {/* タイトル画面 */}
       {screen === 'title' && <TitleScreen />}
