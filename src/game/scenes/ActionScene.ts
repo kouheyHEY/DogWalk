@@ -12,11 +12,16 @@ const JUMP_MIN = 900; // 最小ジャンプ初速 (px/s)
 const JUMP_MAX = 1600; // 最大ジャンプ初速 (px/s)
 const GROUND_RATIO = 0.8; // 地面の高さ（画面高に対する割合）
 
-// 地面セグメントとギャップの幅レンジ
+// 地面セグメントの幅レンジ
 const SEG_MIN_WIDTH = 200;
 const SEG_MAX_WIDTH = 380;
-const GAP_MIN_WIDTH = 90;
-const GAP_MAX_WIDTH = 170;
+
+// 穴幅は固定値ではなく「跳躍で必ず届く距離」から逆算する（#C）。
+const GAP_REACH_RATIO = 0.7; // 跳躍到達距離に対する最大穴幅の比（余裕を持たせる）
+const GAP_MIN_RATIO = 0.5;   // 最大穴幅に対する最小穴幅の比
+const GAP_ABS_MIN = 55;      // 穴幅の絶対下限
+const GAP_ABS_MAX = 220;     // 穴幅の絶対上限
+const SAFE_START_MS = 3500;  // 開始からこの時間は穴を出さない（安全地帯）
 
 const FALL_EXIT_MARGIN = 80; // 画面下からこの距離より下に落ちたら育成画面へ戻る
 
@@ -48,9 +53,6 @@ const BLOCK_MIN_INTERVAL_MS = 2500;
 const BLOCK_MAX_INTERVAL_MS = 5000;
 const BLOCK_CLEAR_MIN = 12; // キャラの頭上クリアランス（最小）
 const BLOCK_CLEAR_MAX = 80; // 〃（最大）。この範囲の高さに出現させる
-
-// 穴幅の体重スケール（#C）。大きくなっても落ちられるよう、体格に応じて穴を広げる。
-const GAP_SCALE_MAX = 4;
 
 // 地面: 表面（草）と本体（土）でスプライトを分ける。表面はこの高さの帯で上に重ねる。
 const GRASS_H = 20;
@@ -91,7 +93,9 @@ export class ActionScene extends Phaser.Scene {
     private blocks: Phaser.GameObjects.Rectangle[] = []; // 宙の障害物（#C）
     private blockGroup!: Phaser.Physics.Arcade.Group;
     private nextBlockSpawnAt = 0;
-    private gapScale = 1; // 穴幅の体重スケール（#C）
+    private minGap = GAP_ABS_MIN; // 穴幅レンジ（create で跳躍到達距離から算出）
+    private maxGap = GAP_ABS_MAX;
+    private startTime = 0; // アクション開始時刻（安全地帯の判定用）
     private pointerDownAt: number | null = null;
     private debugGfx?: Phaser.GameObjects.Graphics;
     private stars?: Phaser.GameObjects.TileSprite; // 夜テーマの星
@@ -140,8 +144,14 @@ export class ActionScene extends Phaser.Scene {
 
         const { weight } = useGameStore.getState();
         this.baseScale = weight * SCALE_PER_KG;
-        // 体格が大きいほど穴を広げる（落ちられるように）。体重5=等倍, 20=4倍で頭打ち。
-        this.gapScale = Phaser.Math.Clamp(this.baseScale / 0.5, 1, GAP_SCALE_MAX);
+        this.startTime = this.time.now;
+        // 穴幅は「フルチャージで必ず跳べる距離」から逆算（体重で跳躍/速度が変わるので動的）。
+        // 滞空時間 = 2*v/g, 水平到達 = スクロール速度 * 滞空時間。
+        const jf = this.weightFactor(JUMP_PER_KG, JUMP_FACTOR_MIN);
+        const sf = this.weightFactor(SPEED_PER_KG, SPEED_FACTOR_MIN);
+        const reach = SCROLL_SPEED * sf * ((2 * JUMP_MAX * jf) / GRAVITY_Y);
+        this.maxGap = Phaser.Math.Clamp(reach * GAP_REACH_RATIO, GAP_ABS_MIN + 10, GAP_ABS_MAX);
+        this.minGap = Math.max(GAP_ABS_MIN, this.maxGap * GAP_MIN_RATIO);
 
         // キャラ（物理ボディ付き）
         this.creature = this.physics.add
@@ -251,9 +261,14 @@ export class ActionScene extends Phaser.Scene {
         return this.scale.height - this.groundY;
     }
 
-    // 体重スケールを反映した穴幅（#C）。
+    // 跳躍で届く範囲の穴幅（#C）。
     private gap(): number {
-        return rand(GAP_MIN_WIDTH * this.gapScale, GAP_MAX_WIDTH * this.gapScale);
+        return rand(this.minGap, this.maxGap);
+    }
+
+    // 次のセグメント前の穴幅。開始から SAFE_START_MS の間は穴なし（0）にする。
+    private gapBeforeNext(): number {
+        return this.time.now - this.startTime < SAFE_START_MS ? 0 : this.gap();
     }
 
     // セグメントを 1 つ生成。土（本体・物理ボディ）と草（表面・装飾）をペアで作る。
@@ -292,13 +307,13 @@ export class ActionScene extends Phaser.Scene {
         if (this.segments.length > 0) {
             const last = this.segments[this.segments.length - 1];
             nextX =
-                last.rect.x + last.width + this.gap();
+                last.rect.x + last.width + this.gapBeforeNext();
         }
         while (nextX < w + SEG_MAX_WIDTH) {
             const width = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
             const { rect, grass } = this.spawnSegment(nextX, width, segHeight);
             this.segments.push({ rect, grass, width });
-            nextX += width + this.gap();
+            nextX += width + this.gapBeforeNext();
         }
     }
 
@@ -332,7 +347,7 @@ export class ActionScene extends Phaser.Scene {
             const last = this.segments[this.segments.length - 1];
             const newX =
                 (last ? last.rect.x + last.width : 0) +
-                this.gap();
+                this.gapBeforeNext();
             const newWidth = rand(SEG_MIN_WIDTH, SEG_MAX_WIDTH);
             s.width = newWidth;
             s.rect.setSize(newWidth, segHeight);
