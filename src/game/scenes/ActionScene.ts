@@ -479,6 +479,15 @@ export class ActionScene extends Phaser.Scene {
         }
         this.cullBlocks();
 
+        // 壁（足場の側面）に当たったら障害物扱いで終了。
+        // 落下中に次の足場の側面に押されて「止まって固まる」のを防ぎ、その場で育成へ戻す。
+        // 地上での角の接触を誤検知しないよう、空中（非接地）のときだけ判定する。
+        const cbody = this.creature.body as Phaser.Physics.Arcade.Body;
+        if (!this.isOnGround() && (cbody.blocked.right || cbody.touching.right)) {
+            useGameStore.getState().exitAction();
+            return;
+        }
+
         // ゲームオーバー判定（画面下まで落ちきったら）
         if (this.creature.y > this.scale.height + FALL_EXIT_MARGIN) {
             useGameStore.getState().exitAction();
