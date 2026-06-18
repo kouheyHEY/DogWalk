@@ -5,6 +5,7 @@ import { MilestoneOverlay } from './components/MilestoneOverlay';
 import { HamburgerMenu } from './components/HamburgerMenu';
 import { NameInputModal } from './components/NameInputModal';
 import { TitleScreen } from './components/TitleScreen';
+import { DevPanel } from './components/DevPanel';
 import { useGameStore, SLEEP_COOLDOWN_MIN, HUNGER_MAX } from './store/gameStore';
 import { REINCARNATION_WEIGHT_THRESHOLD } from './reincarnation';
 import { sound } from './audio/sound';
@@ -118,6 +119,9 @@ export default function App() {
 
       {/* タイトル画面 */}
       {screen === 'title' && <TitleScreen />}
+
+      {/* 開発用テストパネル（dev ビルド限定） */}
+      <DevPanel />
 
       {/* 睡眠フェードオーバーレイ（画面全体） */}
       <div
