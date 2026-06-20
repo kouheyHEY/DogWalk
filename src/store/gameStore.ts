@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { findNewlyUnlocked } from '../achievements';
 import { canReincarnate, reincarnatedFields } from '../reincarnation';
+import { titleFor, isTitleMilestone } from '../titles';
 
 export type Screen = 'title' | 'game';
 export type GameMode = 'care' | 'action'; // 育成画面 / 横スクロールアクション
@@ -13,6 +14,7 @@ interface GameStore {
   food: number;                // ごはんの回数（残数）
   days: number;                // 経過日数
   weight: number;              // 体重 (kg)
+  hunger: number;              // 空腹度 0(満腹)〜100(限界)。限界で「永遠の眠り」
   isSleeping: boolean;         // 睡眠中フラグ
   isPaused: boolean;           // モーダル/メニュー表示中などの一時停止フラグ
   gameMinutes: number;         // ゲーム内経過分（1日 = 1440 で巻き戻る前提の通算分）
@@ -22,11 +24,15 @@ interface GameStore {
   achievements: Record<string, boolean>; // 実績id → 解除済みフラグ
   recentUnlocks: string[];     // 直近で解除された実績id（トースト通知などのキュー）
   reincarnationCount: number;  // 転生した回数（引き継ぎ累計）
+  milestones: string[];        // 節目演出のキュー（体重節目 / てんせい / 称号）。非永続
+  justDied: boolean;           // 直前に「永遠の眠り」になったか（タイトルの一度きり表示用）。非永続
+  actionGameOver: boolean;     // アクションでゲームオーバー演出中か。非永続
   startGame: () => void;
   resetGame: () => void;
   goToTitle: () => void;
   enterAction: () => void;
   exitAction: () => void;
+  setActionGameOver: (v: boolean) => void;
   setPaused: (paused: boolean) => void;
   setName: (name: string) => void;
   tick: () => void;
@@ -35,6 +41,7 @@ interface GameStore {
   gainFood: (amount?: number) => void; // アクションモードのごはん取得などで残数を増やす
   reincarnate: () => void; // 転生（条件を満たすとき初期化＋ボーナス、累計は引き継ぎ）
   consumeUnlock: () => string | null; // recentUnlocks の先頭を取り出して返す（UI用）
+  consumeMilestone: () => string | null; // milestones の先頭を取り出して返す（演出用）
 }
 
 const INITIAL_STATE = {
@@ -42,6 +49,7 @@ const INITIAL_STATE = {
   food: 8,
   days: 1,
   weight: 5.0,
+  hunger: 0,
   isSleeping: false,
   lastWokeAt: null as number | null,
   totalFeedCount: 0,
@@ -49,6 +57,9 @@ const INITIAL_STATE = {
   achievements: {} as Record<string, boolean>,
   recentUnlocks: [] as string[],
   reincarnationCount: 0,
+  milestones: [] as string[],
+  justDied: false,
+  actionGameOver: false,
 };
 
 export const NAME_PATTERN = /^[ぁ-ゖァ-ヶー]{1,4}$/; // ひらがな/カタカナ 1〜4文字（長音符含む）
@@ -77,8 +88,39 @@ const INITIAL_GAME_MINUTES = 8 * 60; // 8:00 スタート
 const MINUTES_PER_DAY = 24 * 60;     // 1日 = 1440 ゲーム内分
 const DAILY_WEIGHT_GAIN = 0.2;       // 1日あたりの体重自然増 (kg)
 
+// 空腹（#B）
+export const HUNGER_MAX = 100;       // この値で「永遠の眠り」
+const HUNGER_PER_MIN = 0.05;         // ゲーム内1分あたりの空腹増（満腹→限界 約1.4日）
+const FEED_SATIETY = 40;             // ごはん1回で減る空腹量
+
+// 体重の節目（演出トリガー #D）
+const WEIGHT_MILESTONES = [10, 25] as const;
+
 function dayIndex(min: number): number {
   return Math.floor(min / MINUTES_PER_DAY);
+}
+
+// prev→next で新たに跨いだ体重節目のラベルを返す。
+function crossedWeightMilestones(prev: number, next: number): string[] {
+  return WEIGHT_MILESTONES.filter((t) => prev < t && next >= t).map((t) => `${t}kg`);
+}
+
+// 「永遠の眠り」でリセットされる状態（name/achievements/累計/転生回数は引き継ぐ）。
+function deathPatch() {
+  return {
+    food: INITIAL_STATE.food,
+    weight: INITIAL_STATE.weight,
+    days: INITIAL_STATE.days,
+    hunger: 0,
+    isSleeping: false,
+    lastWokeAt: null as number | null,
+    recentUnlocks: [] as string[],
+    gameMinutes: INITIAL_GAME_MINUTES,
+    mode: 'care' as GameMode,
+    screen: 'title' as Screen,
+    isPaused: false,
+    justDied: true,
+  };
 }
 
 export const useGameStore = create<GameStore>()(
@@ -89,10 +131,11 @@ export const useGameStore = create<GameStore>()(
   ...INITIAL_STATE,
   isPaused: false,
   gameMinutes: INITIAL_GAME_MINUTES,
-  startGame: () => set({ screen: 'game' }),
-  goToTitle: () => set({ screen: 'title', mode: 'care', isPaused: false }),
-  enterAction: () => set({ mode: 'action' }),
-  exitAction: () => set({ mode: 'care' }),
+  startGame: () => set({ screen: 'game', justDied: false }),
+  goToTitle: () => set({ screen: 'title', mode: 'care', isPaused: false, justDied: false }),
+  enterAction: () => set({ mode: 'action', actionGameOver: false }),
+  exitAction: () => set({ mode: 'care', actionGameOver: false }),
+  setActionGameOver: (v) => set({ actionGameOver: v }),
   setPaused: (paused) => set({ isPaused: paused }),
   gainFood: (amount = 1) => set((s) => ({ food: s.food + amount })),
   reincarnate: () =>
@@ -101,11 +144,17 @@ export const useGameStore = create<GameStore>()(
       if (s.mode !== 'care' || s.isSleeping || !canReincarnate(s.weight)) {
         return s;
       }
+      const fields = reincarnatedFields(s.reincarnationCount);
+      const newCount = fields.reincarnationCount;
       // name / achievements / 累計カウントは引き継ぎ（明示的に触らない）
+      const ms = ['てんせい'];
+      if (isTitleMilestone(newCount)) ms.push(`称号「${titleFor(newCount)}」`);
       return {
-        ...reincarnatedFields(s.reincarnationCount),
+        ...fields,
+        hunger: 0,
         gameMinutes: INITIAL_GAME_MINUTES,
         isPaused: false,
+        milestones: [...s.milestones, ...ms],
       };
     }),
   resetGame: () =>
@@ -121,44 +170,55 @@ export const useGameStore = create<GameStore>()(
     set({ name });
   },
   tick: () => set((s) => {
+    // 空腹進行 → 限界なら「永遠の眠り」
+    const hunger = Math.min(HUNGER_MAX, s.hunger + HUNGER_PER_MIN);
+    if (hunger >= HUNGER_MAX) return deathPatch();
+
     const next = s.gameMinutes + 1;
     const dayDiff = dayIndex(next) - dayIndex(s.gameMinutes);
-    if (dayDiff === 0) return { gameMinutes: next };
+    if (dayDiff === 0) return { gameMinutes: next, hunger };
     const nextDays = s.days + dayDiff;
     const nextWeight = s.weight + DAILY_WEIGHT_GAIN * dayDiff;
     const newlyUnlocked = findNewlyUnlocked(
       { totalFeedCount: s.totalFeedCount, totalSleepCount: s.totalSleepCount, days: nextDays, weight: nextWeight },
       s.achievements,
     );
+    const ms = crossedWeightMilestones(s.weight, nextWeight);
     return {
       gameMinutes: next,
+      hunger,
       days: nextDays,
       weight: nextWeight,
       ...(newlyUnlocked.length > 0 && {
         achievements: { ...s.achievements, ...Object.fromEntries(newlyUnlocked.map((id) => [id, true])) },
         recentUnlocks: [...s.recentUnlocks, ...newlyUnlocked],
       }),
+      ...(ms.length > 0 && { milestones: [...s.milestones, ...ms] }),
     };
   }),
   feed: () =>
     set((s) => {
       if (s.isSleeping || s.food <= 0) return s;
+      const weight = s.weight + 0.5;
       const next = {
         food: s.food - 1,
-        weight: s.weight + 0.5,
+        weight,
+        hunger: Math.max(0, s.hunger - FEED_SATIETY),
         totalFeedCount: s.totalFeedCount + 1,
       };
       const newlyUnlocked = findNewlyUnlocked(
-        { totalFeedCount: next.totalFeedCount, totalSleepCount: s.totalSleepCount, days: s.days, weight: next.weight },
+        { totalFeedCount: next.totalFeedCount, totalSleepCount: s.totalSleepCount, days: s.days, weight },
         s.achievements,
       );
-      return newlyUnlocked.length === 0
-        ? next
-        : {
-            ...next,
-            achievements: { ...s.achievements, ...Object.fromEntries(newlyUnlocked.map((id) => [id, true])) },
-            recentUnlocks: [...s.recentUnlocks, ...newlyUnlocked],
-          };
+      const ms = crossedWeightMilestones(s.weight, weight);
+      return {
+        ...next,
+        ...(newlyUnlocked.length > 0 && {
+          achievements: { ...s.achievements, ...Object.fromEntries(newlyUnlocked.map((id) => [id, true])) },
+          recentUnlocks: [...s.recentUnlocks, ...newlyUnlocked],
+        }),
+        ...(ms.length > 0 && { milestones: [...s.milestones, ...ms] }),
+      };
     }),
   sleep: () => {
     const s = get();
@@ -168,6 +228,11 @@ export const useGameStore = create<GameStore>()(
     // フェードアウト完了タイミングで時間ジャンプ＆起床（その後フェードインへ）
     setTimeout(() => {
       const cur = get();
+      const hunger = Math.min(HUNGER_MAX, cur.hunger + HUNGER_PER_MIN * SLEEP_ELAPSED_MIN);
+      if (hunger >= HUNGER_MAX) {
+        set(deathPatch());
+        return;
+      }
       const advanced = cur.gameMinutes + SLEEP_ELAPSED_MIN;
       const dayDiff = dayIndex(advanced) - dayIndex(cur.gameMinutes);
       const nextDays = cur.days + dayDiff;
@@ -176,16 +241,19 @@ export const useGameStore = create<GameStore>()(
         { totalFeedCount: cur.totalFeedCount, totalSleepCount: cur.totalSleepCount, days: nextDays, weight: nextWeight },
         cur.achievements,
       );
+      const ms = crossedWeightMilestones(cur.weight, nextWeight);
       set({
         isSleeping: false,
         gameMinutes: advanced,
         lastWokeAt: advanced,
+        hunger,
         days: nextDays,
         weight: nextWeight,
         ...(newlyUnlocked.length > 0 && {
           achievements: { ...cur.achievements, ...Object.fromEntries(newlyUnlocked.map((id) => [id, true])) },
           recentUnlocks: [...cur.recentUnlocks, ...newlyUnlocked],
         }),
+        ...(ms.length > 0 && { milestones: [...cur.milestones, ...ms] }),
       });
     }, SLEEP_FADE_MS);
   },
@@ -194,6 +262,13 @@ export const useGameStore = create<GameStore>()(
     if (s.recentUnlocks.length === 0) return null;
     const [head, ...rest] = s.recentUnlocks;
     set({ recentUnlocks: rest });
+    return head;
+  },
+  consumeMilestone: () => {
+    const s = get();
+    if (s.milestones.length === 0) return null;
+    const [head, ...rest] = s.milestones;
+    set({ milestones: rest });
     return head;
   },
     }),
@@ -205,6 +280,7 @@ export const useGameStore = create<GameStore>()(
         food: s.food,
         days: s.days,
         weight: s.weight,
+        hunger: s.hunger,
         gameMinutes: s.gameMinutes,
         lastWokeAt: s.lastWokeAt,
         totalFeedCount: s.totalFeedCount,
@@ -216,4 +292,4 @@ export const useGameStore = create<GameStore>()(
   ),
 );
 
-export { SLEEP_COOLDOWN_MIN };
+export { SLEEP_COOLDOWN_MIN, HUNGER_PER_MIN };

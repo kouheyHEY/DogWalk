@@ -36,6 +36,11 @@ export function GameCanvas() {
       }
     };
 
+    // dev 限定でデバッグ参照を公開（テスト用）
+    if (import.meta.env.DEV) {
+      (window as unknown as { __game?: Phaser.Game }).__game = game;
+    }
+
     // 初期 mode を反映
     switchScene(useGameStore.getState().mode);
 
