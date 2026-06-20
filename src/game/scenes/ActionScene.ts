@@ -96,6 +96,7 @@ export class ActionScene extends Phaser.Scene {
     private minGap = GAP_ABS_MIN; // 穴幅レンジ（create で跳躍到達距離から算出）
     private maxGap = GAP_ABS_MAX;
     private startTime = 0; // アクション開始時刻（安全地帯の判定用）
+    private exiting = false; // 退出処理中（多重発火と mid-step シーン切替を防ぐ）
     private pointerDownAt: number | null = null;
     private debugGfx?: Phaser.GameObjects.Graphics;
     private stars?: Phaser.GameObjects.TileSprite; // 夜テーマの星
@@ -123,6 +124,7 @@ export class ActionScene extends Phaser.Scene {
         const theme = BG_THEMES[Math.floor(Math.random() * BG_THEMES.length)];
         this.cameras.main.setBackgroundColor(theme.sky);
         this.pointerDownAt = null;
+        this.exiting = false;
         this.segments = [];
         this.foods = [];
         this.blocks = [];
@@ -200,7 +202,7 @@ export class ActionScene extends Phaser.Scene {
         });
         // 宙のブロックに触れたらアクション終了（穴落ちと同じく育成へ戻る）
         this.physics.add.overlap(this.creature, this.blockGroup, () => {
-            useGameStore.getState().exitAction();
+            this.endRun();
         });
 
         if (DEBUG) {
@@ -465,6 +467,7 @@ export class ActionScene extends Phaser.Scene {
     }
 
     update(_time: number, delta: number) {
+        if (this.exiting) return; // 退出処理中は何もしない（次フレームでシーンが切り替わる）
         const paused = useGameStore.getState().isPaused;
         if (paused !== this.physics.world.isPaused) {
             if (paused) this.physics.world.pause();
@@ -499,19 +502,27 @@ export class ActionScene extends Phaser.Scene {
         // 地上での角の接触を誤検知しないよう、空中（非接地）のときだけ判定する。
         const cbody = this.creature.body as Phaser.Physics.Arcade.Body;
         if (!this.isOnGround() && (cbody.blocked.right || cbody.touching.right)) {
-            useGameStore.getState().exitAction();
+            this.endRun();
             return;
         }
 
         // ゲームオーバー判定（画面下まで落ちきったら）
         if (this.creature.y > this.scale.height + FALL_EXIT_MARGIN) {
-            useGameStore.getState().exitAction();
+            this.endRun();
             return;
         }
 
         this.applyChargeSquash();
 
         if (DEBUG) this.drawDebug();
+    }
+
+    // アクション終了 → 育成へ。シーン切替が Phaser のステップ途中で走って固まるのを防ぐため、
+    // setTimeout でステップ外に逃がして exitAction を呼ぶ（多重発火は exiting でガード）。
+    private endRun() {
+        if (this.exiting) return;
+        this.exiting = true;
+        window.setTimeout(() => useGameStore.getState().exitAction(), 0);
     }
 
     private applyChargeSquash() {
