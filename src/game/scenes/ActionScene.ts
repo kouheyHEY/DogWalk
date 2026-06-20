@@ -286,6 +286,10 @@ export class ActionScene extends Phaser.Scene {
         body.setAllowGravity(false);
         body.setImmovable(true);
         body.setVelocityX(0); // velocity は毎フレーム update() で再設定
+        // 上面だけ当たる（側面・底は素通り）。落下中に側面で引っかかって止まるのを防ぐ。
+        body.checkCollision.left = false;
+        body.checkCollision.right = false;
+        body.checkCollision.down = false;
 
         // 草表面（上端に重ねる帯・キャラより奥）
         const grass = this.add
@@ -405,9 +409,10 @@ export class ActionScene extends Phaser.Scene {
         const clear = rand(BLOCK_CLEAR_MIN, BLOCK_CLEAR_MAX);
         const x = this.scale.width + 20;
         const y = this.groundY - standH - clear - BLOCK_SIZE; // ブロック上端
+        // リンゴ（赤）と紛れないよう、障害物は暗いトゲ風カラーにする。
         const b = this.add
-            .rectangle(x, y, BLOCK_SIZE, BLOCK_SIZE, 0xd8453a, 1)
-            .setStrokeStyle(2, 0x3a1814)
+            .rectangle(x, y, BLOCK_SIZE, BLOCK_SIZE, 0x3b4250, 1)
+            .setStrokeStyle(3, 0x9aa3b2)
             .setOrigin(0, 0)
             .setDepth(1);
         this.blockGroup.add(b);
@@ -497,15 +502,6 @@ export class ActionScene extends Phaser.Scene {
         }
         this.cullBlocks();
 
-        // 壁（足場の側面）に当たったら障害物扱いで終了。
-        // 落下中に次の足場の側面に押されて「止まって固まる」のを防ぎ、その場で育成へ戻す。
-        // 地上での角の接触を誤検知しないよう、空中（非接地）のときだけ判定する。
-        const cbody = this.creature.body as Phaser.Physics.Arcade.Body;
-        if (!this.isOnGround() && (cbody.blocked.right || cbody.touching.right)) {
-            this.endRun();
-            return;
-        }
-
         // ゲームオーバー判定（画面下まで落ちきったら）
         if (this.creature.y > this.scale.height + FALL_EXIT_MARGIN) {
             this.endRun();
@@ -517,12 +513,12 @@ export class ActionScene extends Phaser.Scene {
         if (DEBUG) this.drawDebug();
     }
 
-    // アクション終了 → 育成へ。シーン切替が Phaser のステップ途中で走って固まるのを防ぐため、
-    // setTimeout でステップ外に逃がして exitAction を呼ぶ（多重発火は exiting でガード）。
+    // アクション終了。ゲームオーバー演出（オーバーレイ＋文言）を出し、育成への復帰は
+    // オーバーレイ側（React）が一定時間後に exitAction で行う。exiting で多重発火を防ぐ。
     private endRun() {
         if (this.exiting) return;
-        this.exiting = true;
-        window.setTimeout(() => useGameStore.getState().exitAction(), 0);
+        this.exiting = true; // 以降 update は早期 return（最後のフレームのまま静止）
+        useGameStore.getState().setActionGameOver(true);
     }
 
     private applyChargeSquash() {

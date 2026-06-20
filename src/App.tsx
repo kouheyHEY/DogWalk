@@ -6,6 +6,7 @@ import { HamburgerMenu } from './components/HamburgerMenu';
 import { NameInputModal } from './components/NameInputModal';
 import { TitleScreen } from './components/TitleScreen';
 import { DevPanel } from './components/DevPanel';
+import { ActionGameOverOverlay } from './components/ActionGameOverOverlay';
 import { useGameStore, SLEEP_COOLDOWN_MIN, HUNGER_MAX } from './store/gameStore';
 import { REINCARNATION_WEIGHT_THRESHOLD } from './reincarnation';
 import { sound } from './audio/sound';
@@ -116,6 +117,9 @@ export default function App() {
 
       {/* 節目の祝い演出（#D）。ゲーム画面のみ */}
       {screen === 'game' && <MilestoneOverlay />}
+
+      {/* アクションのゲームオーバー演出 */}
+      <ActionGameOverOverlay />
 
       {/* タイトル画面 */}
       {screen === 'title' && <TitleScreen />}

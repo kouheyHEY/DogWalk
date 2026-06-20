@@ -25,7 +25,7 @@ export function sequenceDuration(seq: Tone[]): number {
   return seq.reduce((s, t) => s + t.dur, 0);
 }
 
-export type SeName = 'feed' | 'sleep' | 'pickup' | 'achievement' | 'jump' | 'fanfare';
+export type SeName = 'feed' | 'sleep' | 'pickup' | 'achievement' | 'jump' | 'fanfare' | 'gameover';
 
 type SeDef = { type: OscillatorType; vol: number; seq: Tone[] };
 
@@ -44,6 +44,11 @@ export const SE: Record<SeName, SeDef> = {
   fanfare: {
     type: 'square', vol: 0.24,
     seq: [{ note: 'G5', dur: 0.1 }, { note: 'C6', dur: 0.1 }, { note: 'E6', dur: 0.1 }, { note: 'G6', dur: 0.26 }],
+  },
+  // ゲームオーバー（下降する短いフレーズ）
+  gameover: {
+    type: 'triangle', vol: 0.26,
+    seq: [{ note: 'E5', dur: 0.12 }, { note: 'C5', dur: 0.12 }, { note: 'G4', dur: 0.14 }, { note: 'E4', dur: 0.3 }],
   },
 };
 

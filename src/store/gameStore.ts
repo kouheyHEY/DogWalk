@@ -26,11 +26,13 @@ interface GameStore {
   reincarnationCount: number;  // 転生した回数（引き継ぎ累計）
   milestones: string[];        // 節目演出のキュー（体重節目 / てんせい / 称号）。非永続
   justDied: boolean;           // 直前に「永遠の眠り」になったか（タイトルの一度きり表示用）。非永続
+  actionGameOver: boolean;     // アクションでゲームオーバー演出中か。非永続
   startGame: () => void;
   resetGame: () => void;
   goToTitle: () => void;
   enterAction: () => void;
   exitAction: () => void;
+  setActionGameOver: (v: boolean) => void;
   setPaused: (paused: boolean) => void;
   setName: (name: string) => void;
   tick: () => void;
@@ -57,6 +59,7 @@ const INITIAL_STATE = {
   reincarnationCount: 0,
   milestones: [] as string[],
   justDied: false,
+  actionGameOver: false,
 };
 
 export const NAME_PATTERN = /^[ぁ-ゖァ-ヶー]{1,4}$/; // ひらがな/カタカナ 1〜4文字（長音符含む）
@@ -130,8 +133,9 @@ export const useGameStore = create<GameStore>()(
   gameMinutes: INITIAL_GAME_MINUTES,
   startGame: () => set({ screen: 'game', justDied: false }),
   goToTitle: () => set({ screen: 'title', mode: 'care', isPaused: false, justDied: false }),
-  enterAction: () => set({ mode: 'action' }),
-  exitAction: () => set({ mode: 'care' }),
+  enterAction: () => set({ mode: 'action', actionGameOver: false }),
+  exitAction: () => set({ mode: 'care', actionGameOver: false }),
+  setActionGameOver: (v) => set({ actionGameOver: v }),
   setPaused: (paused) => set({ isPaused: paused }),
   gainFood: (amount = 1) => set((s) => ({ food: s.food + amount })),
   reincarnate: () =>
